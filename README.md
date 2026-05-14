@@ -4,7 +4,7 @@
 
 [![PHP](https://img.shields.io/badge/PHP-8.2%2B-blue)](https://php.net)
 [![Laravel Zero](https://img.shields.io/badge/Laravel%20Zero-11.x-red)](https://laravel-zero.com)
-[![Licence MIT](https://img.shields.io/badge/Licence-MIT-green)](LICENSE)
+[![Licence GPL](https://img.shields.io/badge/Licence-GPL-green)](LICENSE)
 
 ---
 
