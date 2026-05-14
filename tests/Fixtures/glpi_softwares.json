@@ -1,0 +1,28 @@
+[
+    {
+        "id": 10,
+        "name": "Firefox",
+        "comment": "Navigateur web open-source",
+        "manufacturers_id": "Mozilla",
+        "softwarecategories_id": "Navigateur",
+        "users_id_tech": "admin.sys",
+        "locations_id": 0,
+        "date": "2023-01-15",
+        "date_mod": "2024-06-01",
+        "is_valid_license": 1,
+        "is_update_source": 0
+    },
+    {
+        "id": 11,
+        "name": "LibreOffice",
+        "comment": "",
+        "manufacturers_id": "The Document Foundation",
+        "softwarecategories_id": "Bureautique",
+        "users_id_tech": 0,
+        "locations_id": 0,
+        "date": "2023-03-10",
+        "date_mod": "2024-05-15",
+        "is_valid_license": 1,
+        "is_update_source": 0
+    }
+]

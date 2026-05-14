@@ -1,0 +1,26 @@
+[
+    {
+        "id": 1,
+        "computers_id": "PC-DIDIER-01",
+        "softwares_id": "Firefox",
+        "softwareversions_id": "120.0",
+        "is_deleted_computer": 0,
+        "is_deleted_softwareversion": 0
+    },
+    {
+        "id": 2,
+        "computers_id": "PC-DIDIER-01",
+        "softwares_id": "LibreOffice",
+        "softwareversions_id": "7.6",
+        "is_deleted_computer": 0,
+        "is_deleted_softwareversion": 0
+    },
+    {
+        "id": 3,
+        "computers_id": "PC-NOUVEAU-01",
+        "softwares_id": "Firefox",
+        "softwareversions_id": "120.0",
+        "is_deleted_computer": 0,
+        "is_deleted_softwareversion": 0
+    }
+]

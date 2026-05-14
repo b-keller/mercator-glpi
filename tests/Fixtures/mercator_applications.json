@@ -1,0 +1,6 @@
+{
+    "data": [
+        {"id": 20, "name": "Firefox",     "description": "[glpi_id:10] Navigateur web open-source"},
+        {"id": 21, "name": "LibreOffice", "description": "[glpi_id:11]"}
+    ]
+}

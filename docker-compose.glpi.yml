@@ -1,0 +1,62 @@
+# =============================================================================
+# docker-compose.glpi.yml — Stack GLPI pour développement / test
+# Usage : ./glpi.sh start | stop | status | logs | url
+# =============================================================================
+
+services:
+
+  glpi:
+    image: diouxx/glpi:latest
+    container_name: glpi-app
+    restart: unless-stopped
+    ports:
+      - "8080:80"
+    environment:
+      MARIADB_HOST: glpi-db
+      MARIADB_DATABASE: glpi
+      MARIADB_USER: glpi
+      MARIADB_PASSWORD: glpi
+      GLPI_LANG: fr_FR
+      TZ: Europe/Luxembourg
+    volumes:
+      - glpi_files:/var/www/html/files
+      - glpi_plugins:/var/www/html/plugins
+      - glpi_config:/var/www/html/config
+    depends_on:
+      glpi-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost/index.php"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  glpi-db:
+    image: mariadb:10.11
+    container_name: glpi-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root_secret
+      MARIADB_DATABASE: glpi
+      MARIADB_USER: glpi
+      MARIADB_PASSWORD: glpi
+      TZ: Europe/Luxembourg
+    volumes:
+      - glpi_db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  glpi_files:
+    driver: local
+  glpi_plugins:
+    driver: local
+  glpi_config:
+    driver: local
+  glpi_db:
+    driver: local

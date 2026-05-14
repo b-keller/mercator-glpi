@@ -1,0 +1,17 @@
+[
+    {
+        "id": 42,
+        "name": "PC-DIDIER-01",
+        "_softwares": [
+            {"softwares_id": "Firefox",     "softwareversions_id": "120.0"},
+            {"softwares_id": "LibreOffice", "softwareversions_id": "7.6"}
+        ]
+    },
+    {
+        "id": 43,
+        "name": "PC-NOUVEAU-01",
+        "_softwares": [
+            {"softwares_id": "Firefox", "softwareversions_id": "120.0"}
+        ]
+    }
+]

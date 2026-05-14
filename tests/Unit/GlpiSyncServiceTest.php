@@ -1,0 +1,304 @@
+<?php
+
+use App\Services\Glpi\Contracts\GlpiClientInterface;
+use App\Services\Glpi\GlpiSyncService;
+use App\Services\Glpi\Handlers\WorkstationSyncHandler;
+use App\Services\Glpi\Mappers\WorkstationMapper;
+use App\Services\Mercator\Contracts\MercatorClientInterface;
+
+// ── Helpers locaux ────────────────────────────────────────────────────────────
+
+function makeHandler(): WorkstationSyncHandler
+{
+    return new WorkstationSyncHandler(new WorkstationMapper());
+}
+
+/**
+ * Mock de GlpiClientInterface — aucun constructeur, aucun readonly, mockable sans crash.
+ */
+function glpiMock(array $items = []): \Mockery\MockInterface
+{
+    $mock = Mockery::mock(GlpiClientInterface::class);
+    $mock->shouldReceive('getItems')->andReturn($items);
+    return $mock;
+}
+
+/**
+ * Mock de MercatorClientInterface.
+ */
+function mercatorMock(array $workstations = [], array $buildings = []): \Mockery\MockInterface
+{
+    $mock = Mockery::mock(MercatorClientInterface::class);
+    $mock->shouldReceive('getBuildings')->andReturn($buildings);
+    $mock->shouldReceive('getAll')->andReturn($workstations);
+    return $mock;
+}
+
+// ── Création ──────────────────────────────────────────────────────────────────
+
+it('crée un workstation absent de Mercator', function () {
+    $created = [];
+
+    $mercator = mercatorMock([], mercatorBuildingsFixture());
+    $mercator->shouldReceive('create')
+        ->andReturnUsing(function (string $ep, array $payload) use (&$created) {
+            $created[] = $payload;
+            return ['id' => 99];
+        });
+
+    (new GlpiSyncService())->sync(
+        glpiMock(glpiComputersFixture()),
+        $mercator,
+        makeHandler(),
+    );
+
+    expect(collect($created)->pluck('name'))
+        ->toContain('PC-DIDIER-01')
+        ->toContain('PC-NOUVEAU-01');
+});
+
+it('inclut le tag glpi_id dans la description lors de la création', function () {
+    $created = [];
+
+    $mercator = mercatorMock([], mercatorBuildingsFixture());
+    $mercator->shouldReceive('create')
+        ->andReturnUsing(function (string $ep, array $payload) use (&$created) {
+            $created[] = $payload;
+            return ['id' => 99];
+        });
+
+    (new GlpiSyncService())->sync(
+        glpiMock(glpiComputersFixture()),
+        $mercator,
+        makeHandler(),
+    );
+
+    $didier = collect($created)->firstWhere('name', 'PC-DIDIER-01');
+    expect($didier['description'])->toStartWith('[glpi_id:42]');
+});
+
+// ── Mise à jour ───────────────────────────────────────────────────────────────
+
+it('met à jour un workstation existant dans Mercator', function () {
+    $updated = [];
+
+    $mercator = mercatorMock(mercatorWorkstationsFixture(), mercatorBuildingsFixture());
+    $mercator->shouldReceive('update')
+        ->andReturnUsing(function (string $ep, int $id, array $payload) use (&$updated) {
+            $updated[] = compact('ep', 'id', 'payload');
+            return [];
+        });
+    $mercator->shouldReceive('delete')->andReturn(null);
+    $mercator->shouldReceive('create')->andReturn(['id' => 99]);
+
+    (new GlpiSyncService())->sync(
+        glpiMock(glpiComputersFixture()),
+        $mercator,
+        makeHandler(),
+    );
+
+    // PC-DIDIER-01 (id Mercator 10) doit être mis à jour
+    $update = collect($updated)->first(fn($u) => $u['id'] === 10);
+    expect($update)->not->toBeNull();
+    expect($update['ep'])->toBe('workstations');
+});
+
+it('met à jour le système d\'exploitation', function () {
+    $updated = [];
+
+    $mercator = mercatorMock(mercatorWorkstationsFixture(), mercatorBuildingsFixture());
+    $mercator->shouldReceive('update')
+        ->andReturnUsing(function (string $ep, int $id, array $payload) use (&$updated) {
+            $updated[] = compact('id', 'payload');
+            return [];
+        });
+    $mercator->shouldReceive('delete')->andReturn(null);
+    $mercator->shouldReceive('create')->andReturn(['id' => 99]);
+
+    (new GlpiSyncService())->sync(
+        glpiMock(glpiComputersFixture()),
+        $mercator,
+        makeHandler(),
+    );
+
+    // La fixture GLPI a "Windows 11 Pro", Mercator avait "Windows 10 Pro"
+    $update = collect($updated)->first(fn($u) => $u['id'] === 10);
+    expect($update['payload']['operating_system'])->toBe('Windows 11 Pro');
+});
+
+// ── Les workstations absentes de GLPI sont ignorées ──────────────────────────
+
+it('ne modifie pas les workstations Mercator absentes de GLPI', function () {
+    $mercator = mercatorMock(mercatorWorkstationsFixture(), mercatorBuildingsFixture());
+    // Aucune écriture sur les workstations orphelines
+    $mercator->shouldNotReceive('delete');
+
+    (new GlpiSyncService())->sync(
+        glpiMock([glpiComputersFixture()[0]]),   // seul PC-DIDIER-01 dans GLPI
+        $mercator,
+        makeHandler(),
+    );
+
+    // PC-ANCIEN-GLPI et PC-MANUEL-01 absents de GLPI → non touchés
+});
+
+it('ne double-préfixe pas un workstation déjà marqué OLD', function () {
+    $updated = [];
+
+    $mercator = mercatorMock(
+        [['id' => 20, 'name' => '[OLD] PC-DEJA-OLD', 'description' => 'Sans tag GLPI']],
+        []
+    );
+    $mercator->shouldReceive('update')
+        ->andReturnUsing(function (string $ep, int $id, array $payload) use (&$updated) {
+            $updated[] = compact('id', 'payload');
+            return [];
+        });
+
+    (new GlpiSyncService())->sync(
+        glpiMock([]),   // GLPI vide
+        $mercator,
+        makeHandler(),
+    );
+
+    // Aucun update sur l'id 20
+    expect(collect($updated)->first(fn($u) => $u['id'] === 20))->toBeNull();
+});
+
+// ── Dry-run ───────────────────────────────────────────────────────────────────
+
+it('ne fait aucune écriture en mode dry-run', function () {
+    $mercator = mercatorMock(mercatorWorkstationsFixture(), mercatorBuildingsFixture());
+    $mercator->shouldNotReceive('create');
+    $mercator->shouldNotReceive('update');
+    $mercator->shouldNotReceive('delete');
+
+    (new GlpiSyncService())->sync(
+        glpiMock(glpiComputersFixture()),
+        $mercator,
+        makeHandler(),
+        dryRun: true,
+    );
+});
+
+// ── Résolution building_id ────────────────────────────────────────────────────
+
+it('résout le building_id depuis le nom de la salle GLPI', function () {
+    $created = [];
+
+    $mercator = mercatorMock([], mercatorBuildingsFixture());
+    $mercator->shouldReceive('create')
+        ->andReturnUsing(function (string $ep, array $payload) use (&$created) {
+            $created[] = $payload;
+            return ['id' => 99];
+        });
+
+    // PC-DIDIER-01 seul : locations_id = "Salle 101" → building_id = 5
+    (new GlpiSyncService())->sync(
+        glpiMock([glpiComputersFixture()[0]]),
+        $mercator,
+        makeHandler(),
+    );
+
+    expect($created[0]['building_id'])->toBe(5);
+});
+
+it('assigne le site_id du building à la workstation', function () {
+    $created = [];
+
+    $mercator = mercatorMock([], mercatorBuildingsFixture());
+    $mercator->shouldReceive('create')
+        ->andReturnUsing(function (string $ep, array $payload) use (&$created) {
+            $created[] = $payload;
+            return ['id' => 99];
+        });
+
+    // PC-DIDIER-01 : Salle 101 → building_id=5, site_id=1
+    (new GlpiSyncService())->sync(
+        glpiMock([glpiComputersFixture()[0]]),
+        $mercator,
+        makeHandler(),
+    );
+
+    expect($created[0]['site_id'])->toBe(1);
+});
+
+it('laisse building_id absent si la salle ne correspond à aucun building', function () {
+    $created = [];
+
+    $mercator = mercatorMock([], mercatorBuildingsFixture());
+    $mercator->shouldReceive('create')
+        ->andReturnUsing(function (string $ep, array $payload) use (&$created) {
+            $created[] = $payload;
+            return ['id' => 100];
+        });
+
+    // PC-NOUVEAU-01 seul : locations_id = "Salle Inconnue" → pas de building
+    (new GlpiSyncService())->sync(
+        glpiMock([glpiComputersFixture()[1]]),
+        $mercator,
+        makeHandler(),
+    );
+
+    expect($created[0])->not->toHaveKey('building_id');
+});
+
+// ── Comportement orphelins ────────────────────────────────────────────────────
+
+it('ne marque pas OLD les applications absentes de GLPI', function () {
+    $mercator = Mockery::mock(MercatorClientInterface::class);
+    $mercator->shouldReceive('getBuildings')->andReturn([]);
+    // Une application Mercator sans tag glpi_id et absente de GLPI
+    $mercator->shouldReceive('getAll')->andReturn([
+        ['id' => 20, 'name' => 'App-Orpheline', 'description' => 'Sans tag GLPI'],
+    ]);
+    // Aucune écriture ne doit avoir lieu
+    $mercator->shouldNotReceive('update');
+    $mercator->shouldNotReceive('delete');
+
+    $handler = new \App\Services\Glpi\Handlers\ApplicationSyncHandler(
+        new \App\Services\Glpi\Mappers\ApplicationMapper()
+    );
+
+    (new GlpiSyncService())->sync(
+        glpiMock([]),   // GLPI vide
+        $mercator,
+        $handler,
+    );
+});
+
+it('ne modifie pas les workstations Mercator absentes de GLPI (processOrphans=false)', function () {
+    $mercator = Mockery::mock(MercatorClientInterface::class);
+    $mercator->shouldReceive('getBuildings')->andReturn([]);
+    $mercator->shouldReceive('getAll')->andReturn([
+        ['id' => 30, 'name' => 'PC-ORPHELIN', 'description' => 'Sans tag GLPI'],
+    ]);
+    $mercator->shouldNotReceive('update');
+    $mercator->shouldNotReceive('delete');
+
+    (new GlpiSyncService())->sync(
+        glpiMock([]),   // GLPI vide
+        $mercator,
+        makeHandler(),  // WorkstationSyncHandler avec processOrphans=false
+    );
+});
+
+it('retourne les statistiques correctes', function () {
+    $mercator = mercatorMock(mercatorWorkstationsFixture(), mercatorBuildingsFixture());
+    $mercator->shouldReceive('update')->andReturn([]);
+    $mercator->shouldReceive('create')->andReturn(['id' => 99]);
+
+    // GLPI : PC-DIDIER-01 (update) + PC-NOUVEAU-01 (create)
+    // Mercator : PC-ANCIEN-GLPI (delete) + PC-MANUEL-01 (mark OLD)
+    $stats = (new GlpiSyncService())->sync(
+        glpiMock(glpiComputersFixture()),
+        $mercator,
+        makeHandler(),
+    );
+
+    expect($stats['created'])->toBe(1);    // PC-NOUVEAU-01
+    expect($stats['updated'])->toBe(1);    // PC-DIDIER-01
+    expect($stats['deleted'])->toBe(0);    // orphelins ignorés (processOrphans=false)
+    expect($stats['marked_old'])->toBe(0); // orphelins ignorés (processOrphans=false)
+    expect($stats['errors'])->toBe(0);
+});

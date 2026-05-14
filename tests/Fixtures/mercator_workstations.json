@@ -1,0 +1,29 @@
+{
+  "data": [
+    {
+      "id": 10,
+      "name": "PC-DIDIER-01",
+      "description": "[glpi_id:42] Poste principal",
+      "serial_number": "SN123456",
+      "building_id": 5,
+      "operating_system": "Windows 10 Pro",
+      "update_source": "GLPI"
+    },
+    {
+      "id": 11,
+      "name": "PC-ANCIEN-GLPI",
+      "description": "[glpi_id:99] Ancien poste supprimé de GLPI",
+      "serial_number": "SN000000",
+      "building_id": 5,
+      "update_source": "GLPI"
+    },
+    {
+      "id": 12,
+      "name": "PC-MANUEL-01",
+      "description": "Poste créé manuellement dans Mercator",
+      "serial_number": "SN654321",
+      "building_id": 5,
+      "update_source": null
+    }
+  ]
+}

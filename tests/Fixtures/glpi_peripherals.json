@@ -1,0 +1,35 @@
+[
+    {
+        "id": 5,
+        "name": "Imprimante-RDC",
+        "comment": "Imprimante couleur rez-de-chaussée",
+        "manufacturers_id": "HP",
+        "peripheraltypes_id": "Imprimante",
+        "peripheralmodels_id": "LaserJet Pro M404",
+        "users_id_tech": "admin.sys",
+        "locations_id": "Salle 101",
+        "_networkports": {
+            "NetworkPortEthernet": [
+                {
+                    "id": 10,
+                    "name": "eth0",
+                    "mac": "aa:bb:cc:dd:ee:ff",
+                    "NetworkName": {
+                        "IPAddress": [{"name": "192.168.1.50"}]
+                    }
+                }
+            ]
+        }
+    },
+    {
+        "id": 6,
+        "name": "Scanner-Accueil",
+        "comment": "",
+        "manufacturers_id": "Epson",
+        "peripheraltypes_id": "Scanner",
+        "peripheralmodels_id": "WorkForce DS-790WN",
+        "users_id_tech": 0,
+        "locations_id": "Salle Inconnue",
+        "_networkports": {}
+    }
+]

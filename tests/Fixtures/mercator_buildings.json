@@ -1,0 +1,7 @@
+{
+    "data": [
+        {"id": 5, "name": "Salle 101",   "site_id": 1},
+        {"id": 6, "name": "Salle 202",   "site_id": 1},
+        {"id": 7, "name": "Datacenter",  "site_id": 2}
+    ]
+}
