@@ -56,13 +56,23 @@ it('mappe la date d\'ajout en install_date', function () {
 it('préfixe la description avec le tag glpi_id', function () {
     $result = (new ApplicationMapper())->map(glpiSoftware(['id' => 10, 'comment' => 'Mon logiciel']));
 
-    expect($result['description'])->toBe('[glpi_id:10] Mon logiciel');
+    expect($result['description'])->toStartWith('[glpi_id:10] Mon logiciel');
 });
 
-it('génère le tag seul si le commentaire est vide', function () {
-    $result = (new ApplicationMapper())->map(glpiSoftware(['id' => 10, 'comment' => '']));
+it('génère le tag seul si le commentaire est vide (pas de champs non mappés)', function () {
+    $result = (new ApplicationMapper())->map([
+        'id' => 10, 'name' => 'X', 'comment' => '',
+        'manufacturers_id' => 'M', 'softwarecategories_id' => 'C',
+        'users_id_tech' => 'U', 'date' => '2024-01-01', 'locations_id' => 0,
+    ]);
 
     expect($result['description'])->toBe('[glpi_id:10]');
+});
+
+it('sérialise les champs GLPI non mappés dans la description', function () {
+    $result = (new ApplicationMapper())->map(glpiSoftware());
+
+    expect($result['description'])->toContain('"is_valid_license" : "1"');
 });
 
 // ── Valeurs nulles ────────────────────────────────────────────────────────────

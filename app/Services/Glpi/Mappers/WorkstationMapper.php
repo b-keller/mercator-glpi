@@ -2,8 +2,11 @@
 
 namespace App\Services\Glpi\Mappers;
 
+use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+
 class WorkstationMapper
 {
+    use AppendsUnmappedFields;
     /**
      * Mappe un Computer GLPI (expand_dropdowns=1) vers un payload Workstation Mercator.
      *
@@ -17,7 +20,10 @@ class WorkstationMapper
 
         return array_filter([
             'name'               => $item['name'],
-            'description'        => $this->buildDescription($item),
+            'description'        => $this->buildDescription($item, [
+                'computertypes_id', 'manufacturers_id', 'computermodels_id', 'serial',
+                'operatingsystems_id', 'states_id', 'users_id', 'locations_id', 'ram', 'date_last_boot',
+            ]),
             'type'               => $this->nullable($item['computertypes_id'] ?? null),
             'manufacturer'       => $this->nullable($item['manufacturers_id'] ?? null),
             'model'              => $this->nullable($item['computermodels_id'] ?? null),
@@ -48,14 +54,6 @@ class WorkstationMapper
     // -------------------------------------------------------------------------
     // Description avec tag glpi_id
     // -------------------------------------------------------------------------
-
-    private function buildDescription(array $item): string
-    {
-        $tag     = '[glpi_id:' . $item['id'] . ']';
-        $comment = trim($item['comment'] ?? '');
-
-        return $comment ? "{$tag} {$comment}" : $tag;
-    }
 
     // -------------------------------------------------------------------------
     // Résolution building_id

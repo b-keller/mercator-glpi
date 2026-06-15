@@ -2,8 +2,11 @@
 
 namespace App\Services\Glpi\Mappers;
 
+use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+
 class ApplianceMapper
 {
+    use AppendsUnmappedFields;
     /**
      * Mappe une Appliance GLPI (expand_dropdowns=1) vers un payload Mercator activities.
      *
@@ -16,17 +19,9 @@ class ApplianceMapper
     {
         return array_filter([
             'name'        => $item['name'],
-            'description' => $this->buildDescription($item),
+            'description' => $this->buildDescription($item, ['users_id_tech']),
             'responsible' => $this->nullable($item['users_id_tech'] ?? null),
         ], fn($v) => $v !== null);
-    }
-
-    private function buildDescription(array $item): string
-    {
-        $tag     = '[glpi_id:' . $item['id'] . ']';
-        $comment = trim($item['comment'] ?? '');
-
-        return $comment ? "{$tag} {$comment}" : $tag;
     }
 
     private function nullable(mixed $value): mixed

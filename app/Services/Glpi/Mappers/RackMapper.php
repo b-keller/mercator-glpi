@@ -2,8 +2,11 @@
 
 namespace App\Services\Glpi\Mappers;
 
+use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+
 class RackMapper
 {
+    use AppendsUnmappedFields;
     /**
      * Mappe un Rack GLPI (expand_dropdowns=1) vers un payload Mercator bays.
      *
@@ -19,17 +22,9 @@ class RackMapper
 
         return array_filter([
             'name'        => $item['name'],
-            'description' => $this->buildDescription($item),
+            'description' => $this->buildDescription($item, ['locations_id']),
             'room_id'     => $building['id'] ?? null,
         ], fn($v) => $v !== null);
-    }
-
-    private function buildDescription(array $item): string
-    {
-        $tag     = '[glpi_id:' . $item['id'] . ']';
-        $comment = trim($item['comment'] ?? '');
-
-        return $comment ? "{$tag} {$comment}" : $tag;
     }
 
     private function resolveBuilding(mixed $locationName, array $buildingsMap): ?array

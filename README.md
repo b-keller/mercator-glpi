@@ -79,6 +79,8 @@ MercatorClient               — Client HTTP Mercator (API REST, Bearer token)
 
 **Traçabilité** : à la création, l'identifiant GLPI est inscrit dans le champ `description` sous la forme `[glpi_id:42]`.
 
+**Champs non mappés** : les champs GLPI qui n'ont pas de champ Mercator dédié (ex. numéro de série alternatif, statut, type de baie…) sont automatiquement sérialisés à la suite de la description au format `"nom_champ" : "valeur"`. Les champs vides, nuls ou à 0 sont ignorés. Les structures complexes (`_networkports`, `_devices`…) sont également ignorées.
+
 ---
 
 ## Prérequis
@@ -304,8 +306,12 @@ php application glpi:sync --type=logical_servers --type=physical_servers
 |---|---|
 | `name` | `name` |
 | `comment` | `description` (préfixé de `[glpi_id:N]`) |
+| `locations_id` (location parente) | `building_id` (résolution par nom) |
+| Champs non mappés (adresse, ville…) | sérialisés dans `description` |
 
 > Les bâtiments créés ici servent de référence pour résoudre `building_id` et `site_id` dans tous les autres types d'actifs (workstations, physical-switches…). **Synchroniser `locations` en premier.**
+>
+> La hiérarchie des localisations GLPI (salle → bâtiment parent) est préservée via `building_id`. Les données géographiques n'ayant pas de champ dédié dans le modèle `buildings` Mercator (adresse, code postal, ville, pays, GPS) sont sérialisées dans `description`.
 
 #### Logiciels (`Software` → `applications`)
 
@@ -358,7 +364,10 @@ php application glpi:sync --type=logical_servers --type=physical_servers
 | `name` | `name` |
 | `comment` | `description` (préfixé de `[glpi_id:N]`) |
 | `networkequipmenttypes_id` | `type` |
+| `manufacturers_id` | `vendor` |
+| `networkequipmentmodels_id` | `product` |
 | `locations_id` | `building_id` + `site_id` (résolution par nom) |
+| Champs non mappés (serial, statut…) | sérialisés dans `description` |
 
 #### Baies (`Rack` → `bays`)
 

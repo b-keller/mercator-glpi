@@ -2,8 +2,11 @@
 
 namespace App\Services\Glpi\Mappers;
 
+use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+
 class NetworkDeviceMapper
 {
+    use AppendsUnmappedFields;
     /**
      * Mappe un NetworkEquipment GLPI (expand_dropdowns=1) vers un payload Mercator physical-switches.
      *
@@ -19,19 +22,38 @@ class NetworkDeviceMapper
 
         return array_filter([
             'name'        => $item['name'],
-            'description' => $this->buildDescription($item),
-            'type'        => $this->nullable($item['networkequipmenttypes_id'] ?? null),
+            'description' => $this->buildDescription($item, [
+                'networkequipmenttypes_id', 'manufacturers_id', 'networkequipmentmodels_id', 'locations_id',
+            ]),
+            'type'        => $this->mapType($item['networkequipmenttypes_id'] ?? null),
+            'vendor'      => $this->nullable($item['manufacturers_id'] ?? null),
+            'product'     => $this->nullable($item['networkequipmentmodels_id'] ?? null),
             'building_id' => $building['id'] ?? null,
             'site_id'     => $building['site_id'] ?? null,
         ], fn($v) => $v !== null);
     }
 
-    private function buildDescription(array $item): string
+    /**
+     * Normalise le type d'équipement réseau.
+     *
+     * Accepte indifféremment une chaîne (expand_dropdowns=1) ou un entier (ID brut GLPI).
+     */
+    private function mapType(int|string|null $typeId): ?string
     {
-        $tag     = '[glpi_id:' . $item['id'] . ']';
-        $comment = trim($item['comment'] ?? '');
+        if ($typeId === null || $typeId === 0 || $typeId === '0' || $typeId === '') {
+            return null;
+        }
 
-        return $comment ? "{$tag} {$comment}" : $tag;
+        if (is_string($typeId)) {
+            return $typeId;
+        }
+
+        return match ($typeId) {
+            1 => 'Router',
+            2 => 'Switch',
+            3 => 'Firewall',
+            default => null,
+        };
     }
 
     private function resolveBuilding(mixed $locationName, array $buildingsMap): ?array
@@ -43,12 +65,42 @@ class NetworkDeviceMapper
         return $buildingsMap[strtolower($locationName)] ?? null;
     }
 
-    private function nullable(mixed $value): mixed
+    /**
+     * Extrait la première adresse IP depuis les ports réseau GLPI (_networkports).
+     */
+    public function getFirstIpAddress(array $item): ?string
     {
-        if ($value === null || $value === 0 || $value === '0' || $value === '') {
-            return null;
+        foreach ($item['_networkports'] ?? [] as $ports) {
+            foreach ($ports as $port) {
+                $ip = $port['NetworkName']['IPAddress'][0]['name'] ?? null;
+                if ($ip) {
+                    return $ip;
+                }
+            }
         }
 
-        return $value;
+        return null;
+    }
+
+    /**
+     * Extrait la première adresse MAC depuis les ports réseau GLPI (_networkports).
+     */
+    public function getFirstMacAddress(array $item): ?string
+    {
+        foreach ($item['_networkports'] ?? [] as $ports) {
+            foreach ($ports as $port) {
+                $mac = $port['mac'] ?? null;
+                if ($mac) {
+                    return strtoupper($mac);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private function nullable(mixed $value): mixed
+    {
+        return ($value === null || $value === 0 || $value === '0' || $value === '') ? null : $value;
     }
 }

@@ -2,8 +2,11 @@
 
 namespace App\Services\Glpi\Mappers;
 
+use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+
 class ApplicationMapper
 {
+    use AppendsUnmappedFields;
     /**
      * Mappe un Software GLPI (expand_dropdowns=1) vers un payload Application Mercator.
      *
@@ -14,7 +17,9 @@ class ApplicationMapper
     {
         return array_filter([
             'name'         => $item['name'],
-            'description'  => $this->buildDescription($item),
+            'description'  => $this->buildDescription($item, [
+                'manufacturers_id', 'softwarecategories_id', 'users_id_tech', 'date', 'locations_id',
+            ]),
             'product'      => $item['name'],
             'vendor'       => $this->nullable($item['manufacturers_id'] ?? null),
             'editor'       => $this->nullable($item['manufacturers_id'] ?? null),
@@ -22,18 +27,6 @@ class ApplicationMapper
             'responsible'  => $this->nullable($item['users_id_tech'] ?? null),
             'install_date' => $this->parseDate($item['date'] ?? null),
         ], fn($v) => $v !== null);
-    }
-
-    // -------------------------------------------------------------------------
-    // Description avec tag glpi_id
-    // -------------------------------------------------------------------------
-
-    private function buildDescription(array $item): string
-    {
-        $tag     = '[glpi_id:' . $item['id'] . ']';
-        $comment = trim($item['comment'] ?? '');
-
-        return $comment ? "{$tag} {$comment}" : $tag;
     }
 
     // -------------------------------------------------------------------------

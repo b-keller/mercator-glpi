@@ -74,13 +74,24 @@ it('positionne update_source à GLPI', function () {
 it('préfixe la description avec le tag glpi_id', function () {
     $result = (new WorkstationMapper())->map(glpiComputer(['id' => 42, 'comment' => 'Mon poste']), ['buildings_map' => []]);
 
-    expect($result['description'])->toBe('[glpi_id:42] Mon poste');
+    expect($result['description'])->toStartWith('[glpi_id:42] Mon poste');
 });
 
-it('génère le tag seul si le commentaire est vide', function () {
-    $result = (new WorkstationMapper())->map(glpiComputer(['id' => 42, 'comment' => '']), ['buildings_map' => []]);
+it('génère le tag seul si le commentaire est vide (pas de champs non mappés)', function () {
+    $result = (new WorkstationMapper())->map([
+        'id' => 42, 'name' => 'PC', 'comment' => '',
+        'serial' => 'SN', 'computertypes_id' => 'T', 'manufacturers_id' => 'M',
+        'computermodels_id' => 'Mo', 'operatingsystems_id' => 'OS', 'states_id' => 'S',
+        'users_id' => 'U', 'locations_id' => 0, 'ram' => 8192, 'date_last_boot' => null,
+    ], ['buildings_map' => []]);
 
     expect($result['description'])->toBe('[glpi_id:42]');
+});
+
+it('sérialise les champs GLPI non mappés dans la description', function () {
+    $result = (new WorkstationMapper())->map(glpiComputer(), ['buildings_map' => []]);
+
+    expect($result['description'])->toContain('"otherserial" : "INV-2024-001"');
 });
 
 // ── Résolution building_id ────────────────────────────────────────────────────

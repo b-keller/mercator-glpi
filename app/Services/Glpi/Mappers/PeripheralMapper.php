@@ -2,8 +2,11 @@
 
 namespace App\Services\Glpi\Mappers;
 
+use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+
 class PeripheralMapper
 {
+    use AppendsUnmappedFields;
     /**
      * Mappe un Peripheral GLPI (expand_dropdowns=1) vers un payload Mercator.
      *
@@ -17,7 +20,9 @@ class PeripheralMapper
 
         return array_filter([
             'name'        => $item['name'],
-            'description' => $this->buildDescription($item),
+            'description' => $this->buildDescription($item, [
+                'peripheraltypes_id', 'manufacturers_id', 'peripheralmodels_id', 'users_id_tech', 'locations_id',
+            ]),
             'type'        => $this->nullable($item['peripheraltypes_id'] ?? null),
             'vendor'      => $this->nullable($item['manufacturers_id'] ?? null),
             'product'     => $this->nullable($item['peripheralmodels_id'] ?? null),
@@ -26,18 +31,6 @@ class PeripheralMapper
             'site_id'     => $building['site_id'] ?? null,
             'address_ip'  => $this->extractIp($item),
         ], fn($v) => $v !== null);
-    }
-
-    // -------------------------------------------------------------------------
-    // Description avec tag glpi_id
-    // -------------------------------------------------------------------------
-
-    private function buildDescription(array $item): string
-    {
-        $tag     = '[glpi_id:' . $item['id'] . ']';
-        $comment = trim($item['comment'] ?? '');
-
-        return $comment ? "{$tag} {$comment}" : $tag;
     }
 
     // -------------------------------------------------------------------------
