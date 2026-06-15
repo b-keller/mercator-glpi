@@ -4,7 +4,9 @@ namespace App\Services\Mercator;
 
 use App\Services\Mercator\Contracts\MercatorClientInterface;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class MercatorClient implements MercatorClientInterface
@@ -19,12 +21,18 @@ class MercatorClient implements MercatorClientInterface
 
     public function authenticate(): void
     {
-        $response = Http::post($this->url('login'), [
+        $url = $this->url('login');
+        Log::debug('[Mercator] POST ' . $url);
+
+        $response = Http::post($url, [
             'login'    => $this->config['login'],
             'password' => $this->config['password'],
         ]);
 
+        Log::debug('[Mercator] login → HTTP ' . $response->status());
+
         if ($response->failed()) {
+            Log::debug('[Mercator] Erreur login : ' . $response->body());
             throw new RuntimeException(
                 'Authentification Mercator échouée : ' . $response->status()
             );
@@ -39,17 +47,7 @@ class MercatorClient implements MercatorClientInterface
 
     public function getBuildings(): array
     {
-        $response = $this->request()->get($this->url('buildings'), [
-            'per_page' => 1000,
-        ]);
-
-        if ($response->failed()) {
-            throw new RuntimeException(
-                'Erreur lors de la récupération des buildings Mercator : ' . $response->status()
-            );
-        }
-
-        return $this->extractItems($response);
+        return $this->getAll('buildings');
     }
 
     // -------------------------------------------------------------------------
@@ -58,24 +56,36 @@ class MercatorClient implements MercatorClientInterface
 
     public function getAll(string $endpoint): array
     {
-        $response = $this->request()->get($this->url($endpoint), [
-            'per_page' => 1000,
-        ]);
+        $url = $this->url($endpoint);
+        Log::debug("[Mercator] GET {$endpoint}");
+
+        $response = $this->request()->get($url, ['per_page' => 1000]);
+
+        Log::debug("[Mercator] {$endpoint} → HTTP {$response->status()}");
 
         if ($response->failed()) {
+            Log::debug("[Mercator] Erreur GET {$endpoint} : " . $response->body());
             throw new RuntimeException(
                 "Erreur lors de la récupération de {$endpoint} : " . $response->status()
             );
         }
 
-        return $this->extractItems($response);
+        $items = $this->extractItems($response);
+        Log::debug("[Mercator] {$endpoint} → " . count($items) . ' item(s) reçu(s)');
+
+        return $items;
     }
 
     public function create(string $endpoint, array $payload): array
     {
+        Log::debug("[Mercator] POST {$endpoint}", ['payload' => $this->truncatePayload($payload)]);
+
         $response = $this->request()->post($this->url($endpoint), $payload);
 
+        Log::debug("[Mercator] POST {$endpoint} → HTTP {$response->status()}");
+
         if ($response->failed()) {
+            Log::debug("[Mercator] Erreur POST {$endpoint} : " . $response->body());
             throw new RuntimeException(
                 "Erreur lors de la création dans {$endpoint} : " . $response->status()
                 . ' — ' . $response->body()
@@ -87,9 +97,14 @@ class MercatorClient implements MercatorClientInterface
 
     public function update(string $endpoint, int $id, array $payload): array
     {
+        Log::debug("[Mercator] PUT {$endpoint}/{$id}", ['payload' => $this->truncatePayload($payload)]);
+
         $response = $this->request()->put($this->url("{$endpoint}/{$id}"), $payload);
 
+        Log::debug("[Mercator] PUT {$endpoint}/{$id} → HTTP {$response->status()}");
+
         if ($response->failed()) {
+            Log::debug("[Mercator] Erreur PUT {$endpoint}/{$id} : " . $response->body());
             throw new RuntimeException(
                 "Erreur lors de la mise à jour de {$endpoint}/{$id} : " . $response->status()
                 . ' — ' . $response->body()
@@ -101,9 +116,14 @@ class MercatorClient implements MercatorClientInterface
 
     public function delete(string $endpoint, int $id): void
     {
+        Log::debug("[Mercator] DELETE {$endpoint}/{$id}");
+
         $response = $this->request()->delete($this->url("{$endpoint}/{$id}"));
 
+        Log::debug("[Mercator] DELETE {$endpoint}/{$id} → HTTP {$response->status()}");
+
         if ($response->failed()) {
+            Log::debug("[Mercator] Erreur DELETE {$endpoint}/{$id} : " . $response->body());
             throw new RuntimeException(
                 "Erreur lors de la suppression de {$endpoint}/{$id} : " . $response->status()
             );
@@ -121,7 +141,7 @@ class MercatorClient implements MercatorClientInterface
      *   - Paginé Laravel  : {"data": [...], "links": {...}, "meta": {...}}
      *   - Tableau direct  : [{...}, {...}, ...]
      */
-    private function extractItems(\Illuminate\Http\Client\Response $response): array
+    private function extractItems(Response $response): array
     {
         $json = $response->json();
 
@@ -129,17 +149,22 @@ class MercatorClient implements MercatorClientInterface
             return [];
         }
 
-        // Format paginé : clé "data" présente
         if (array_key_exists('data', $json) && is_array($json['data'])) {
             return $json['data'];
         }
 
-        // Format tableau direct (liste de objets indexés numériquement)
         if (array_is_list($json)) {
             return $json;
         }
 
         return [];
+    }
+
+    private function truncatePayload(array $payload): string
+    {
+        $json = json_encode($payload, JSON_UNESCAPED_UNICODE);
+
+        return strlen($json) > 500 ? substr($json, 0, 500) . '…' : $json;
     }
 
     private function request(): PendingRequest

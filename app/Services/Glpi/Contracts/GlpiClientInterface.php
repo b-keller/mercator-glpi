@@ -8,4 +8,5 @@ interface GlpiClientInterface
     public function killSession(): void;
     public function getItem(string $itemType, int $id, array $params = []): array;
     public function getItems(string $itemType, array $extraParams = []): array;
+    public function setEntityId(?int $entityId): void;
 }

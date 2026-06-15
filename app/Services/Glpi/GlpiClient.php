@@ -5,13 +5,27 @@ namespace App\Services\Glpi;
 use App\Services\Glpi\Contracts\GlpiClientInterface;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class GlpiClient implements GlpiClientInterface
 {
     private ?string $sessionToken = null;
+    private ?int    $entityId;
 
-    public function __construct(private readonly array $config) {}
+    public function __construct(private readonly array $config)
+    {
+        $this->entityId = $config['entity_id'] ?? null;
+    }
+
+    // -------------------------------------------------------------------------
+    // Entité
+    // -------------------------------------------------------------------------
+
+    public function setEntityId(?int $entityId): void
+    {
+        $this->entityId = $entityId;
+    }
 
     // -------------------------------------------------------------------------
     // Session
@@ -19,12 +33,18 @@ class GlpiClient implements GlpiClientInterface
 
     public function authenticate(): void
     {
+        $url = $this->url('initSession');
+        Log::debug('[GLPI] GET ' . $url);
+
         $response = Http::withHeaders([
             'Authorization' => 'user_token ' . $this->config['user_token'],
             'App-Token'     => $this->config['app_token'],
-        ])->get($this->url('initSession'));
+        ])->get($url);
+
+        Log::debug('[GLPI] initSession → HTTP ' . $response->status());
 
         if ($response->failed()) {
+            Log::debug('[GLPI] Erreur initSession : ' . $response->body());
             throw new RuntimeException(
                 'Authentification GLPI échouée : ' . $response->status()
             );
@@ -44,49 +64,23 @@ class GlpiClient implements GlpiClientInterface
     }
 
     // -------------------------------------------------------------------------
-    // Computers
+    // Items
     // -------------------------------------------------------------------------
-
-    /**
-     * Récupère tous les ordinateurs GLPI (< 1000 postes supposés).
-     *
-     * @param  array  $extraParams  Paramètres supplémentaires (with_devices, etc.)
-     */
-    public function getComputers(array $extraParams = []): array
-    {
-        $params = array_merge([
-            'range'             => '0-999',
-            'expand_dropdowns'  => 1,
-            'with_networkports' => 1,
-            'with_devices'      => 1,
-            'with_disks'        => 1,
-            'with_infocoms'     => 1,
-        ], $extraParams);
-
-        $response = $this->request()->get($this->url('Computer'), $params);
-
-        if ($response->status() === 206) {
-            // 206 Partial Content = résultats dans range, c'est normal
-            return $response->json() ?? [];
-        }
-
-        if ($response->failed()) {
-            throw new RuntimeException(
-                'Erreur lors de la récupération des ordinateurs GLPI : ' . $response->status()
-            );
-        }
-
-        return $response->json() ?? [];
-    }
 
     /**
      * Récupère un item GLPI par son ID avec ses données annexes (with_softwares, etc.)
      */
     public function getItem(string $itemType, int $id, array $params = []): array
     {
-        $response = $this->request()->get($this->url("{$itemType}/{$id}"), $params);
+        $url = $this->url("{$itemType}/{$id}");
+        Log::debug("[GLPI] GET {$itemType}/{$id}", ['params' => $params]);
+
+        $response = $this->request()->get($url, $params);
+
+        Log::debug("[GLPI] {$itemType}/{$id} → HTTP {$response->status()}");
 
         if ($response->failed()) {
+            Log::debug("[GLPI] Erreur {$itemType}/{$id} : " . $response->body());
             throw new RuntimeException(
                 "Erreur lors de la récupération de {$itemType}/{$id} : " . $response->status()
             );
@@ -96,7 +90,7 @@ class GlpiClient implements GlpiClientInterface
     }
 
     /**
-     * Récupère les items d'un itemtype donné (Phone, Peripheral…)
+     * Récupère les items d'un itemtype donné (Phone, Peripheral, Computer…)
      */
     public function getItems(string $itemType, array $extraParams = []): array
     {
@@ -105,20 +99,41 @@ class GlpiClient implements GlpiClientInterface
             'expand_dropdowns' => 1,
         ], $extraParams);
 
-        $response = $this->request()->get($this->url($itemType), $params);
+        $params = $this->withEntityParams($params);
+
+        $url = $this->url($itemType);
+        Log::debug("[GLPI] GET {$itemType}", ['url' => $url, 'params' => $params]);
+
+        $response = $this->request()->get($url, $params);
+
+        Log::debug("[GLPI] {$itemType} → HTTP {$response->status()}");
 
         if ($response->failed() && $response->status() !== 206) {
+            Log::debug("[GLPI] Erreur {$itemType} : " . $response->body());
             throw new RuntimeException(
                 "Erreur lors de la récupération de {$itemType} : " . $response->status()
             );
         }
 
-        return $response->json() ?? [];
+        $items = $response->json() ?? [];
+        Log::debug("[GLPI] {$itemType} → {$response->status()}, " . count($items) . ' item(s) reçu(s)');
+
+        return $items;
     }
 
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
+
+    private function withEntityParams(array $params): array
+    {
+        if ($this->entityId !== null) {
+            $params['entities_id']  = $this->entityId;
+            $params['is_recursive'] = 1;
+        }
+
+        return $params;
+    }
 
     private function request(): PendingRequest
     {

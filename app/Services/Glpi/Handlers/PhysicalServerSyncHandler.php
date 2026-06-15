@@ -3,11 +3,11 @@
 namespace App\Services\Glpi\Handlers;
 
 use App\Services\Glpi\Contracts\SyncHandler;
-use App\Services\Glpi\Mappers\WorkstationMapper;
+use App\Services\Glpi\Mappers\PhysicalServerMapper;
 
-class WorkstationSyncHandler implements SyncHandler
+class PhysicalServerSyncHandler implements SyncHandler
 {
-    public function __construct(private readonly WorkstationMapper $mapper) {}
+    public function __construct(private readonly PhysicalServerMapper $mapper) {}
 
     public function glpiItemType(): string
     {
@@ -16,7 +16,7 @@ class WorkstationSyncHandler implements SyncHandler
 
     public function mercatorEndpoint(): string
     {
-        return 'workstations';
+        return 'physical-servers';
     }
 
     public function glpiQueryParams(): array
@@ -36,13 +36,16 @@ class WorkstationSyncHandler implements SyncHandler
         return false;
     }
 
+    /**
+     * Inclut uniquement les Computer dont le computertypes_id est dans GLPI_COMPUTER_TYPES_PHYSICAL_SERVERS.
+     * Si la config est vide, aucun Computer n'est synchronisé (sécurité : opt-in explicite).
+     */
     public function filterItem(array $item): bool
     {
-        $allowed = config('glpi.computer_types.workstations', []);
+        $allowed = config('glpi.computer_types.physical_servers', []);
 
-        // Vide = tous les Computer sont acceptés comme workstations
         if (empty($allowed)) {
-            return true;
+            return false;
         }
 
         return $this->matchesComputerType($item['computertypes_id'] ?? null, $allowed);
@@ -62,7 +65,6 @@ class WorkstationSyncHandler implements SyncHandler
         $typeStr = (string) $typeValue;
 
         foreach ($allowed as $a) {
-            // Comparaison par ID numérique ou par nom (insensible à la casse)
             if (is_numeric($a) && is_numeric($typeStr) && (int) $a === (int) $typeStr) {
                 return true;
             }

@@ -3,27 +3,28 @@
 namespace App\Services\Glpi\Handlers;
 
 use App\Services\Glpi\Contracts\SyncHandler;
-use App\Services\Glpi\Mappers\ApplicationMapper;
+use App\Services\Glpi\Mappers\NetworkDeviceMapper;
 
-class ApplicationSyncHandler implements SyncHandler
+class NetworkDeviceSyncHandler implements SyncHandler
 {
-    public function __construct(private readonly ApplicationMapper $mapper) {}
+    public function __construct(private readonly NetworkDeviceMapper $mapper) {}
 
     public function glpiItemType(): string
     {
-        return 'Software';
+        return 'NetworkEquipment';
     }
 
     public function mercatorEndpoint(): string
     {
-        return 'applications';
+        return 'physical-switches';
     }
 
     public function glpiQueryParams(): array
     {
         return [
-            'range'            => '0-999',
-            'expand_dropdowns' => 1,
+            'range'             => '0-999',
+            'expand_dropdowns'  => 1,
+            'with_networkports' => 1,
         ];
     }
 

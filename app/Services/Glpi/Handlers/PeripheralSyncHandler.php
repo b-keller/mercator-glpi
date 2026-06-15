@@ -33,6 +33,11 @@ class PeripheralSyncHandler implements SyncHandler
         return false;
     }
 
+    public function filterItem(array $item): bool
+    {
+        return true;
+    }
+
     public function map(array $glpiItem, array $context): array
     {
         return $this->mapper->map($glpiItem, $context);

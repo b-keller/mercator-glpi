@@ -13,11 +13,11 @@ class GlpiSyncService
     /**
      * Synchronise un type d'item GLPI vers Mercator.
      *
-     * Les clients sont passés en paramètre (interfaces) plutôt qu'injectés
-     * en constructeur : cela facilite les tests (mock des interfaces, pas
-     * des classes concrètes avec readonly) et garantit l'instance authentifiée.
+     * Retourne un tableau de stats. Si l'endpoint Mercator n'existe pas (HTTP 404),
+     * retourne les stats vides avec 'endpoint_missing' => true afin que la commande
+     * puisse afficher un avertissement sans comptabiliser d'erreur.
      *
-     * @return array{created: int, updated: int, deleted: int, marked_old: int, errors: int}
+     * @return array{created: int, updated: int, deleted: int, marked_old: int, errors: int, endpoint_missing: bool}
      */
     public function sync(
         GlpiClientInterface     $glpi,
@@ -25,7 +25,8 @@ class GlpiSyncService
         SyncHandler             $handler,
         bool                    $dryRun = false,
     ): array {
-        $stats = ['created' => 0, 'updated' => 0, 'deleted' => 0, 'marked_old' => 0, 'errors' => 0];
+        $stats    = ['created' => 0, 'updated' => 0, 'deleted' => 0, 'marked_old' => 0, 'errors' => 0, 'endpoint_missing' => false];
+        $endpoint = $handler->mercatorEndpoint();
 
         // ── 1. Chargement des données ─────────────────────────────────────────
 
@@ -36,17 +37,55 @@ class GlpiSyncService
             $handler->glpiQueryParams()
         );
 
-        $mercatorItems = $mercator->getAll($handler->mercatorEndpoint());
+        Log::debug("[{$endpoint}] {$handler->glpiItemType()} GLPI : " . count($glpiItems) . ' item(s) reçu(s)');
 
-        // ── 2. Construction des index ─────────────────────────────────────────
+        // ── 2. Filtrage par statut (Évolution 2) ──────────────────────────────
 
-        // Index GLPI  : lower(name) => item complet
+        $allowedStates = $this->resolveAllowedStates($handler->glpiItemType());
+
+        if (! empty($allowedStates)) {
+            $before     = count($glpiItems);
+            $glpiItems  = array_values(array_filter(
+                $glpiItems,
+                fn($item) => $this->matchesState($item, $allowedStates)
+            ));
+            $filtered = $before - count($glpiItems);
+            Log::debug("[{$endpoint}] Filtre statut [{$handler->glpiItemType()}] : {$filtered} item(s) exclus, " . count($glpiItems) . ' conservé(s)');
+        }
+
+        // ── 3. Filtrage par sous-type (handler::filterItem) ───────────────────
+
+        $before    = count($glpiItems);
+        $glpiItems = array_values(array_filter($glpiItems, fn($item) => $handler->filterItem($item)));
+        $excluded  = $before - count($glpiItems);
+
+        if ($excluded > 0) {
+            Log::debug("[{$endpoint}] Filtre sous-type : {$excluded} item(s) exclus, " . count($glpiItems) . ' conservé(s)');
+        }
+
+        // ── 4. Chargement Mercator ────────────────────────────────────────────
+
+        try {
+            $mercatorItems = $mercator->getAll($endpoint);
+        } catch (\RuntimeException $e) {
+            if (str_contains($e->getMessage(), ': 404')) {
+                Log::warning("[{$endpoint}] Endpoint non disponible dans Mercator (404) — synchronisation ignorée");
+                $stats['endpoint_missing'] = true;
+
+                return $stats;
+            }
+            throw $e;
+        }
+
+        Log::debug("[{$endpoint}] Mercator : " . count($mercatorItems) . ' item(s) existant(s)');
+
+        // ── 5. Construction des index ─────────────────────────────────────────
+
         $glpiMap = [];
         foreach ($glpiItems as $item) {
             $glpiMap[strtolower($item['name'])] = $item;
         }
 
-        // Index Mercator : lower(name) => ['id' => int, 'name' => string, 'glpi_id' => int|null]
         $mercMap = [];
         foreach ($mercatorItems as $item) {
             $mercMap[strtolower($item['name'])] = [
@@ -58,39 +97,42 @@ class GlpiSyncService
 
         $context = ['buildings_map' => $buildingsMap];
 
-        // ── 3. GLPI → Mercator : créer ou mettre à jour ───────────────────────
+        // ── 6. GLPI → Mercator : créer ou mettre à jour ───────────────────────
 
         foreach ($glpiItems as $glpiItem) {
-            $key = strtolower($glpiItem['name']);
+            $key    = strtolower($glpiItem['name']);
+            $action = isset($mercMap[$key]) ? 'UPDATE' : 'CREATE';
 
             try {
                 $payload = $handler->map($glpiItem, $context);
 
-                if (isset($mercMap[$key])) {
+                $payloadDebug = json_encode($payload, JSON_UNESCAPED_UNICODE);
+                if (strlen($payloadDebug) > 500) {
+                    $payloadDebug = substr($payloadDebug, 0, 500) . '…';
+                }
+
+                Log::debug("[{$endpoint}] {$action} {$glpiItem['name']} — payload: {$payloadDebug}");
+
+                if ($action === 'UPDATE') {
                     if (! $dryRun) {
-                        $mercator->update(
-                            $handler->mercatorEndpoint(),
-                            $mercMap[$key]['id'],
-                            $payload
-                        );
+                        $mercator->update($endpoint, $mercMap[$key]['id'], $payload);
                     }
                     $stats['updated']++;
-                    Log::info("[{$handler->mercatorEndpoint()}] Mis à jour : {$glpiItem['name']}");
+                    Log::info("[{$endpoint}] Mis à jour : {$glpiItem['name']}");
                 } else {
                     if (! $dryRun) {
-                        $mercator->create($handler->mercatorEndpoint(), $payload);
+                        $mercator->create($endpoint, $payload);
                     }
                     $stats['created']++;
-                    Log::info("[{$handler->mercatorEndpoint()}] Créé : {$glpiItem['name']}");
+                    Log::info("[{$endpoint}] Créé : {$glpiItem['name']}");
                 }
             } catch (Throwable $e) {
                 $stats['errors']++;
-                Log::error("[{$handler->mercatorEndpoint()}] Erreur sur {$glpiItem['name']} : " . $e->getMessage());
+                Log::error("[{$endpoint}] Erreur sur {$glpiItem['name']} : " . $e->getMessage());
             }
         }
 
-        // ── 4. Mercator → nettoyage : supprimer ou marquer OLD ────────────────
-        // Ignoré si le handler indique de ne pas traiter les orphelins.
+        // ── 7. Mercator → nettoyage : supprimer ou marquer OLD ────────────────
 
         if ($handler->processOrphans()) {
             foreach ($mercMap as $key => $mercItem) {
@@ -101,40 +143,42 @@ class GlpiSyncService
                 try {
                     if ($mercItem['glpi_id'] !== null) {
                         if (! $dryRun) {
-                            $mercator->delete($handler->mercatorEndpoint(), $mercItem['id']);
+                            $mercator->delete($endpoint, $mercItem['id']);
                         }
                         $stats['deleted']++;
-                        Log::info("[{$handler->mercatorEndpoint()}] Supprimé : {$mercItem['name']}");
+                        Log::info("[{$endpoint}] Supprimé : {$mercItem['name']}");
                     } else {
                         $oldName = $mercItem['name'];
                         if (! str_starts_with($oldName, '[OLD]')) {
                             if (! $dryRun) {
-                                $mercator->update(
-                                    $handler->mercatorEndpoint(),
-                                    $mercItem['id'],
-                                    ['name' => '[OLD] ' . $oldName]
-                                );
+                                $mercator->update($endpoint, $mercItem['id'], ['name' => '[OLD] ' . $oldName]);
                             }
                             $stats['marked_old']++;
-                            Log::info("[{$handler->mercatorEndpoint()}] Marqué OLD : {$oldName}");
+                            Log::info("[{$endpoint}] Marqué OLD : {$oldName}");
                         }
                     }
                 } catch (Throwable $e) {
                     $stats['errors']++;
-                    Log::error("[{$handler->mercatorEndpoint()}] Erreur nettoyage {$mercItem['name']} : " . $e->getMessage());
+                    Log::error("[{$endpoint}] Erreur nettoyage {$mercItem['name']} : " . $e->getMessage());
                 }
             }
         }
+
+        Log::debug(sprintf(
+            '[%s] Stats : +%d créés, ~%d mis à jour, -%d supprimés, %d OLD, %d erreurs',
+            $endpoint,
+            $stats['created'],
+            $stats['updated'],
+            $stats['deleted'],
+            $stats['marked_old'],
+            $stats['errors'],
+        ));
 
         return $stats;
     }
 
     /**
      * Synchronise les liens workstation↔application depuis GLPI vers Mercator.
-     *
-     * Lit les Computer_SoftwareVersion de GLPI (liens poste ↔ logiciel),
-     * résout les IDs Mercator correspondants, puis met à jour chaque workstation
-     * avec la liste de ses application_ids.
      *
      * @return array{updated: int, skipped: int, errors: int}
      */
@@ -147,7 +191,6 @@ class GlpiSyncService
 
         // ── 1. Chargement ─────────────────────────────────────────────────────
 
-        // Liste des computers (sans logiciels — with_softwares non supporté sur la collection)
         $computers = $glpi->getItems('Computer', [
             'range'            => '0-999',
             'expand_dropdowns' => 1,
@@ -158,7 +201,7 @@ class GlpiSyncService
 
         // ── 2. Index Mercator ─────────────────────────────────────────────────
 
-        $wsMap  = [];
+        $wsMap = [];
         foreach ($wsItems as $ws) {
             $wsMap[strtolower($ws['name'])] = [
                 'id'   => $ws['id'],
@@ -184,11 +227,10 @@ class GlpiSyncService
             $computerName = strtolower(trim($computer['name'] ?? ''));
 
             if (! isset($wsMap[$computerName])) {
-                continue; // Poste absent de Mercator → ignoré
+                continue;
             }
 
-            // N+1 : with_softwares=1 ne fonctionne que sur les items individuels
-            $detail    = $glpi->getItem('Computer', $computer['id'], [
+            $detail = $glpi->getItem('Computer', $computer['id'], [
                 'with_softwares'   => 1,
                 'expand_dropdowns' => 1,
             ]);
@@ -227,7 +269,7 @@ class GlpiSyncService
                 if (! $dryRun) {
                     $payload = [
                         'name'         => $workstationName,
-                        'applications' => $uniqueAppIds, // champ attendu par WorkstationController::update()
+                        'applications' => $uniqueAppIds,
                     ];
 
                     Log::debug(sprintf(
@@ -254,30 +296,174 @@ class GlpiSyncService
     }
 
     /**
-     * Extrait le nom du logiciel depuis un enregistrement _softwares GLPI.
+     * Synchronise les liens activité↔application depuis GLPI vers Mercator.
      *
-     * Gère les cas :
-     *   - softwares_id = "Firefox"  (expand_dropdowns=1 a expandé le dropdown)
-     *   - softwares_id = 10          (int, non expandé) + name = "Firefox"
-     *   - name = "Firefox"           (champ direct depuis le JOIN GLPI)
+     * Chaque Appliance GLPI est récupérée individuellement avec with_items=1.
+     * Les logiciels liés (Software) sont mis en correspondance avec les
+     * Application Mercator par nom. La mise à jour passe par le côté Application
+     * (ApplicationController.update → activities()->sync([...])).
+     *
+     * @return array{updated: int, skipped: int, errors: int}
+     */
+    public function syncActivityLinks(
+        GlpiClientInterface     $glpi,
+        MercatorClientInterface $mercator,
+        bool                    $dryRun = false,
+    ): array {
+        $stats = ['updated' => 0, 'skipped' => 0, 'errors' => 0];
+
+        // ── 1. Chargement ─────────────────────────────────────────────────────
+
+        $appliances = $glpi->getItems('Appliance', [
+            'range'            => '0-999',
+            'expand_dropdowns' => 1,
+        ]);
+
+        $activityItems = $mercator->getAll('activities');
+        $appItems      = $mercator->getAll('applications');
+
+        // ── 2. Index Mercator ─────────────────────────────────────────────────
+
+        $activityMap = [];
+        foreach ($activityItems as $act) {
+            $activityMap[strtolower($act['name'])] = $act['id'];
+        }
+
+        $appMap = [];
+        foreach ($appItems as $app) {
+            $appMap[strtolower($app['name'])] = ['id' => $app['id'], 'name' => $app['name']];
+        }
+
+        Log::info(sprintf(
+            '[activity_links] %d appliances GLPI, %d activités Mercator, %d applications Mercator',
+            count($appliances),
+            count($activityMap),
+            count($appMap),
+        ));
+
+        // ── 3. Construire le map software_name → [activity_ids] ──────────────
+        // Pour chaque Appliance, on récupère individuellement ses Software liés
+        // (with_items=1 n'est pas garanti sur les requêtes de liste).
+
+        $softwareToActivities = []; // lower(software_name) → [activity_id, ...]
+
+        foreach ($appliances as $appliance) {
+            $applianceKey = strtolower(trim($appliance['name'] ?? ''));
+            $activityId   = $activityMap[$applianceKey] ?? null;
+
+            if ($activityId === null) {
+                $stats['skipped']++;
+                Log::debug("[activity_links] Appliance sans activité Mercator : {$appliance['name']}");
+                continue;
+            }
+
+            $detail        = $glpi->getItem('Appliance', $appliance['id'], [
+                'with_items'       => 1,
+                'expand_dropdowns' => 1,
+            ]);
+            $softwareItems = $detail['_items']['Software'] ?? [];
+
+            if (empty($softwareItems)) {
+                Log::debug("[activity_links] Appliance sans logiciels liés : {$appliance['name']}");
+                continue;
+            }
+
+            foreach ($softwareItems as $sw) {
+                $swName = strtolower(trim($sw['name'] ?? ''));
+                if ($swName === '') {
+                    continue;
+                }
+                $softwareToActivities[$swName][] = $activityId;
+            }
+        }
+
+        // ── 4. Pour chaque Application Mercator : synchroniser ses activités ──
+
+        foreach ($appMap as $appName => $appEntry) {
+            $activityIds = array_values(array_unique($softwareToActivities[$appName] ?? []));
+
+            if (empty($activityIds)) {
+                continue;
+            }
+
+            try {
+                if (! $dryRun) {
+                    $mercator->update('applications', $appEntry['id'], [
+                        'name'       => $appEntry['name'],
+                        'activities' => $activityIds,
+                    ]);
+                }
+                $stats['updated']++;
+                Log::info(sprintf(
+                    '[activity_links] %s → %d activité(s) : [%s]',
+                    $appEntry['name'],
+                    count($activityIds),
+                    implode(', ', $activityIds),
+                ));
+            } catch (Throwable $e) {
+                $stats['errors']++;
+                Log::error("[activity_links] Erreur pour {$appEntry['name']} : " . $e->getMessage());
+            }
+        }
+
+        return $stats;
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers — filtrage statut (Évolution 2)
+    // -------------------------------------------------------------------------
+
+    /**
+     * Retourne la liste des states_id autorisés pour un itemtype GLPI.
+     * Priorité : config spécifique au type → config globale → [] (aucun filtre).
+     */
+    private function resolveAllowedStates(string $itemType): array
+    {
+        $typeStates = config("glpi.allowed_states.{$itemType}", []);
+
+        if (! empty($typeStates)) {
+            return array_map('strval', $typeStates);
+        }
+
+        $defaultStates = config('glpi.allowed_states.default', []);
+
+        return array_map('strval', $defaultStates);
+    }
+
+    /**
+     * Vérifie si l'item GLPI correspond à un statut autorisé.
+     * Gère le cas où states_id est 0 (non renseigné) ou une chaîne expandée.
+     */
+    private function matchesState(array $item, array $allowedStates): bool
+    {
+        $stateValue = (string) ($item['states_id'] ?? '');
+
+        // states_id = 0 ou vide = statut non défini dans GLPI
+        if ($stateValue === '' || $stateValue === '0') {
+            return in_array('0', $allowedStates, true);
+        }
+
+        return in_array($stateValue, $allowedStates, true);
+    }
+
+    // -------------------------------------------------------------------------
+    // Helpers — liens
+    // -------------------------------------------------------------------------
+
+    /**
+     * Extrait le nom du logiciel depuis un enregistrement _softwares GLPI.
      */
     private function extractSoftwareName(array $software): string
     {
-        // Cas 1 : softwares_id est une chaîne non numérique (dropdown expandé)
         $softwaresId = $software['softwares_id'] ?? null;
         if (is_string($softwaresId) && ! is_numeric($softwaresId)) {
             return strtolower(trim($softwaresId));
         }
 
-        // Cas 2 : champ 'name' présent (JOIN avec glpi_softwares)
-        // Attention : dans _softwares, 'name' peut être le nom du LOGICIEL
-        // ou le nom de la VERSION selon la version de GLPI
-        // On préfère 'softname' s'il existe (GLPI le fournit parfois)
         if (! empty($software['softname'])) {
             return strtolower(trim($software['softname']));
         }
 
-        // Cas 3 : 'name' = nom du logiciel (GLPI sans version séparée)
         if (! empty($software['name'])) {
             return strtolower(trim($software['name']));
         }
@@ -286,7 +472,7 @@ class GlpiSyncService
     }
 
     // -------------------------------------------------------------------------
-    // Helpers
+    // Helpers — buildings
     // -------------------------------------------------------------------------
 
     private function buildBuildingsMap(MercatorClientInterface $mercator): array

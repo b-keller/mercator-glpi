@@ -5,8 +5,14 @@ namespace App\Commands;
 use App\Services\Glpi\Contracts\GlpiClientInterface;
 use App\Services\Glpi\GlpiSyncService;
 use App\Services\Glpi\Handlers\ApplicationSyncHandler;
+use App\Services\Glpi\Handlers\ApplianceSyncHandler;
+use App\Services\Glpi\Handlers\LocationSyncHandler;
+use App\Services\Glpi\Handlers\LogicalServerSyncHandler;
+use App\Services\Glpi\Handlers\NetworkDeviceSyncHandler;
 use App\Services\Glpi\Handlers\PeripheralSyncHandler;
 use App\Services\Glpi\Handlers\PhoneSyncHandler;
+use App\Services\Glpi\Handlers\PhysicalServerSyncHandler;
+use App\Services\Glpi\Handlers\RackSyncHandler;
 use App\Services\Glpi\Handlers\WorkstationSyncHandler;
 use App\Services\Mercator\Contracts\MercatorClientInterface;
 use LaravelZero\Framework\Commands\Command;
@@ -16,15 +22,22 @@ class GlpiSyncCommand extends Command
 {
     protected $signature = 'glpi:sync
                             {--dry-run : Simule la synchronisation sans écrire}
-                            {--type=* : Types à synchroniser (workstations). Défaut : tous}';
+                            {--type=* : Types à synchroniser. Défaut : tous}
+                            {--entity= : ID de l\'entité GLPI (priorité sur GLPI_ENTITY_ID)}';
 
     protected $description = 'Synchronise les assets GLPI vers Mercator';
 
     private array $handlers = [
-        'workstations' => WorkstationSyncHandler::class,
-        'applications' => ApplicationSyncHandler::class,
-        'peripherals'  => PeripheralSyncHandler::class,
-        'phones'       => PhoneSyncHandler::class,
+        'workstations'    => WorkstationSyncHandler::class,
+        'applications'    => ApplicationSyncHandler::class,
+        'peripherals'     => PeripheralSyncHandler::class,
+        'phones'          => PhoneSyncHandler::class,
+        'network_devices' => NetworkDeviceSyncHandler::class,
+        'racks'           => RackSyncHandler::class,
+        'appliances'      => ApplianceSyncHandler::class,
+        'locations'       => LocationSyncHandler::class,
+        'logical_servers' => LogicalServerSyncHandler::class,
+        'physical_servers'=> PhysicalServerSyncHandler::class,
     ];
 
     public function handle(
@@ -44,9 +57,20 @@ class GlpiSyncCommand extends Command
             $this->line('  <fg=yellow>» Mode DRY-RUN — aucune écriture</>');
         }
 
+        // ── Entité GLPI (Évolution 1) ────────────────────────────────────────
+
+        $entityId = $this->option('entity') !== null
+            ? (int) $this->option('entity')
+            : config('glpi.glpi.entity_id');
+
+        if ($entityId !== null) {
+            $glpi->setEntityId($entityId);
+            $this->line("  <fg=yellow>» Entité GLPI filtrée : {$entityId}</>");
+        }
+
         $this->line('');
 
-        // ── Authentification ────────────────────────────────────────────────
+        // ── Authentification ─────────────────────────────────────────────────
 
         try {
             $this->line('  Authentification GLPI…');
@@ -65,15 +89,28 @@ class GlpiSyncCommand extends Command
         $this->line('');
         $globalStats = ['created' => 0, 'updated' => 0, 'deleted' => 0, 'marked_old' => 0, 'errors' => 0];
 
-        // Par défaut : tous les handlers + liens
-        $defaultTypes = [...array_keys($this->handlers), 'links'];
-        $types        = $this->option('type') ?: $defaultTypes;
+        // Ordre intentionnel : locations et applications en premier car les autres
+        // types en dépendent (building_id, liens workstation/activity ↔ application).
+        $defaultTypes = [
+            'locations',
+            'applications',
+            'appliances',
+            'workstations',
+            'peripherals',
+            'phones',
+            'network_devices',
+            'racks',
+            'logical_servers',
+            'physical_servers',
+            'links',
+            'activity_links',
+        ];
+        $types = $this->option('type') ?: $defaultTypes;
 
         // ── Synchronisation par type ─────────────────────────────────────────
 
         foreach ($types as $type) {
 
-            // ── Liens workstation↔application (traitement spécial) ───────────
             if ($type === 'links') {
                 $this->line('  <fg=cyan>─── links ───</>');
                 try {
@@ -94,7 +131,26 @@ class GlpiSyncCommand extends Command
                 continue;
             }
 
-            // ── Handlers SyncHandler (workstations, applications…) ───────────
+            if ($type === 'activity_links') {
+                $this->line('  <fg=cyan>─── activity_links ───</>');
+                try {
+                    $linkStats = $syncService->syncActivityLinks($glpi, $mercator, $dryRun);
+                    $this->line(sprintf(
+                        '  <fg=yellow>~%d mis à jour</>  <fg=gray>%d ignorés</>  <fg=red>%d erreurs</>',
+                        $linkStats['updated'],
+                        $linkStats['skipped'],
+                        $linkStats['errors'],
+                    ));
+                    $globalStats['updated'] += $linkStats['updated'];
+                    $globalStats['errors']  += $linkStats['errors'];
+                } catch (Throwable $e) {
+                    $this->error('  Erreur lors de la sync activity_links : ' . $e->getMessage());
+                    $globalStats['errors']++;
+                }
+                $this->line('');
+                continue;
+            }
+
             if (! isset($this->handlers[$type])) {
                 $this->warn("  Type inconnu ou non actif : {$type}");
                 continue;
@@ -107,8 +163,12 @@ class GlpiSyncCommand extends Command
             try {
                 $stats = $syncService->sync($glpi, $mercator, $handler, $dryRun);
 
-                $this->printStats($stats);
-                $this->mergeStats($globalStats, $stats);
+                if ($stats['endpoint_missing'] ?? false) {
+                    $this->warn("  Endpoint non disponible dans Mercator — type ignoré");
+                } else {
+                    $this->printStats($stats);
+                    $this->mergeStats($globalStats, $stats);
+                }
             } catch (Throwable $e) {
                 $this->error("  Erreur lors de la sync {$type} : " . $e->getMessage());
                 $globalStats['errors']++;
@@ -149,8 +209,8 @@ class GlpiSyncCommand extends Command
 
     private function mergeStats(array &$global, array $stats): void
     {
-        foreach ($stats as $key => $value) {
-            $global[$key] += $value;
+        foreach (['created', 'updated', 'deleted', 'marked_old', 'errors'] as $key) {
+            $global[$key] += ($stats[$key] ?? 0);
         }
     }
 }

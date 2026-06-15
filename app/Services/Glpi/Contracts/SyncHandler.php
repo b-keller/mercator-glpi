@@ -5,7 +5,7 @@ namespace App\Services\Glpi\Contracts;
 interface SyncHandler
 {
     /**
-     * Itemtype GLPI source : 'Computer', 'Phone', 'Peripheral', 'Software'
+     * Itemtype GLPI source : 'Computer', 'Phone', 'Peripheral', 'Software'…
      */
     public function glpiItemType(): string;
 
@@ -30,9 +30,14 @@ interface SyncHandler
     /**
      * Indique si les items présents dans Mercator mais absents de GLPI
      * doivent être traités (supprimés ou marqués [OLD]).
-     *
-     * true  → comportement par défaut (workstations)
-     * false → les orphelins Mercator sont ignorés (applications)
      */
     public function processOrphans(): bool;
+
+    /**
+     * Filtre individuel appliqué après récupération GLPI, avant mapping.
+     *
+     * Retourner true pour inclure l'item, false pour l'exclure.
+     * Utilisé notamment pour le routage par sous-type (computertypes_id).
+     */
+    public function filterItem(array $item): bool;
 }

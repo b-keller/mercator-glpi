@@ -3,20 +3,20 @@
 namespace App\Services\Glpi\Handlers;
 
 use App\Services\Glpi\Contracts\SyncHandler;
-use App\Services\Glpi\Mappers\ApplicationMapper;
+use App\Services\Glpi\Mappers\ApplianceMapper;
 
-class ApplicationSyncHandler implements SyncHandler
+class ApplianceSyncHandler implements SyncHandler
 {
-    public function __construct(private readonly ApplicationMapper $mapper) {}
+    public function __construct(private readonly ApplianceMapper $mapper) {}
 
     public function glpiItemType(): string
     {
-        return 'Software';
+        return 'Appliance';
     }
 
     public function mercatorEndpoint(): string
     {
-        return 'applications';
+        return 'activities';
     }
 
     public function glpiQueryParams(): array
@@ -24,6 +24,7 @@ class ApplicationSyncHandler implements SyncHandler
         return [
             'range'            => '0-999',
             'expand_dropdowns' => 1,
+            'with_items'       => 1,
         ];
     }
 

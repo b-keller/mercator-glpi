@@ -3,20 +3,20 @@
 namespace App\Services\Glpi\Handlers;
 
 use App\Services\Glpi\Contracts\SyncHandler;
-use App\Services\Glpi\Mappers\ApplicationMapper;
+use App\Services\Glpi\Mappers\LocationMapper;
 
-class ApplicationSyncHandler implements SyncHandler
+class LocationSyncHandler implements SyncHandler
 {
-    public function __construct(private readonly ApplicationMapper $mapper) {}
+    public function __construct(private readonly LocationMapper $mapper) {}
 
     public function glpiItemType(): string
     {
-        return 'Software';
+        return 'Location';
     }
 
     public function mercatorEndpoint(): string
     {
-        return 'applications';
+        return 'buildings';
     }
 
     public function glpiQueryParams(): array

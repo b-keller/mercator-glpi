@@ -1,6 +1,4 @@
-# mercator-glpi
-
-> Connecteur de synchronisation **GLPI → Mercator** — synchronise automatiquement les postes de travail, applications, périphériques et téléphones de votre inventaire GLPI vers la cartographie du SI Mercator.
+# mercator-glpi — Connecteur GLPI → Mercator
 
 [![PHP](https://img.shields.io/badge/PHP-8.2%2B-blue)](https://php.net)
 [![Laravel Zero](https://img.shields.io/badge/Laravel%20Zero-11.x-red)](https://laravel-zero.com)
@@ -10,78 +8,76 @@
 
 ## Table des matières
 
-- [Ce que fait ce connecteur](#ce-que-fait-ce-connecteur)
+- [À propos](#à-propos)
 - [Architecture](#architecture)
 - [Prérequis](#prérequis)
 - [Installation](#installation)
 - [Configuration](#configuration)
+  - [Fichier .env — référence complète](#fichier-env--référence-complète)
+  - [Configuration côté GLPI](#configuration-côté-glpi)
+  - [Configuration côté Mercator](#configuration-côté-mercator)
 - [Utilisation](#utilisation)
-- [Types synchronisés](#types-synchronisés)
-- [Logique de synchronisation](#logique-de-synchronisation)
+  - [Synchronisation complète](#synchronisation-complète)
+  - [Ordre d'exécution et dépendances](#ordre-dexécution-et-dépendances)
+  - [Synchronisation par type](#synchronisation-par-type)
+  - [Options disponibles](#options-disponibles)
+  - [Exemples de commandes courantes](#exemples-de-commandes-courantes)
+- [Types d'actifs synchronisés](#types-dactifs-synchronisés)
+  - [Tableau de correspondance GLPI → Mercator](#tableau-de-correspondance-glpi--mercator)
+  - [Détail des champs par type](#détail-des-champs-par-type)
+- [Filtrage des actifs](#filtrage-des-actifs)
+  - [Par entité GLPI](#par-entité-glpi)
+  - [Par statut](#par-statut)
+  - [Par sous-type (Computer)](#par-sous-type-computer)
 - [Planification automatique](#planification-automatique)
-- [Tests](#tests)
+- [Logs et diagnostic](#logs-et-diagnostic)
+  - [Activer les logs debug](#activer-les-logs-debug)
+  - [Lire les logs](#lire-les-logs)
+  - [Cas d'erreurs fréquents et solutions](#cas-derreurs-fréquents-et-solutions)
 - [Étendre le connecteur](#étendre-le-connecteur)
-- [Dépannage](#dépannage)
+- [Tests](#tests)
+- [Licence](#licence)
 
 ---
 
-## Ce que fait ce connecteur
+## À propos
 
-`mercator-glpi` est une application PHP en ligne de commande qui interroge l'API REST de **GLPI** et met à jour **Mercator** (cartographie du système d'information) en conséquence :
+`mercator-glpi` est une application PHP en ligne de commande qui synchronise les actifs de votre inventaire **GLPI** vers la cartographie du système d'information **Mercator**.
 
-| Source GLPI | Destination Mercator | Clé de réconciliation |
-|---|---|---|
-| `Computer` | `workstations` | `name` |
-| `Software` | `applications` | `name` |
-| `Peripheral` | `peripherals` | `name` |
-| `Phone` | `phones` | `name` |
-| `Computer_SoftwareVersion` | liens `application_workstation` | — |
+La synchronisation est **unidirectionnelle** : GLPI est la source de vérité, Mercator est la destination. Aucune écriture n'est jamais effectuée dans GLPI.
 
-La synchronisation est **unidirectionnelle** : GLPI est la source de vérité, Mercator est la destination. Aucune écriture n'est effectuée dans GLPI.
-
-Les éléments présents dans Mercator mais absents de GLPI sont **conservés tels quels** (comportement non-destructif).
+Les actifs présents dans Mercator mais absents de GLPI sont **conservés** (comportement non-destructif par défaut). Ils peuvent avoir été créés manuellement ou provenir d'une autre source.
 
 ---
 
 ## Architecture
 
+Le connecteur repose sur le patron **Strategy** : chaque type d'actif est géré par un Handler + un Mapper indépendants, orchestrés par un service central.
+
 ```
-mercator-glpi/
-├── app/
-│   ├── Commands/
-│   │   └── GlpiSyncCommand.php          # Commande artisan : glpi:sync
-│   ├── Services/
-│   │   ├── Glpi/
-│   │   │   ├── Contracts/
-│   │   │   │   ├── GlpiClientInterface.php
-│   │   │   │   └── SyncHandler.php      # Interface des handlers
-│   │   │   ├── Handlers/                # Un handler par type d'item
-│   │   │   │   ├── WorkstationSyncHandler.php
-│   │   │   │   ├── ApplicationSyncHandler.php
-│   │   │   │   ├── PeripheralSyncHandler.php
-│   │   │   │   └── PhoneSyncHandler.php
-│   │   │   ├── Mappers/                 # Mapping champs GLPI → Mercator
-│   │   │   │   ├── WorkstationMapper.php
-│   │   │   │   ├── ApplicationMapper.php
-│   │   │   │   ├── PeripheralMapper.php
-│   │   │   │   └── PhoneMapper.php
-│   │   │   ├── GlpiClient.php           # Client HTTP GLPI (API v1)
-│   │   │   └── GlpiSyncService.php      # Orchestration de la sync
-│   │   └── Mercator/
-│   │       ├── Contracts/
-│   │       │   └── MercatorClientInterface.php
-│   │       └── MercatorClient.php       # Client HTTP Mercator
-│   └── Providers/
-│       └── AppServiceProvider.php
-├── config/
-│   └── glpi.php                         # Configuration (lu depuis .env)
-└── tests/
-    ├── Unit/                            # Tests unitaires (mappers, service)
-    ├── Feature/                         # Tests d'intégration (commande)
-    └── Fixtures/                        # Données de test JSON
+GlpiSyncCommand              — Commande CLI (glpi:sync), options, affichage
+GlpiSyncService              — Orchestration : récupération, filtrage, création/mise à jour
+  ├── SyncHandler             — Interface de chaque type d'actif
+  │   ├── WorkstationSyncHandler      → endpoint: workstations
+  │   ├── ApplicationSyncHandler      → endpoint: applications
+  │   ├── PeripheralSyncHandler       → endpoint: peripherals
+  │   ├── PhoneSyncHandler            → endpoint: phones
+  │   ├── NetworkDeviceSyncHandler    → endpoint: physical-switches
+  │   ├── RackSyncHandler             → endpoint: bays
+  │   ├── ApplianceSyncHandler        → endpoint: activities
+  │   ├── LocationSyncHandler         → endpoint: buildings
+  │   ├── LogicalServerSyncHandler    → endpoint: logical-servers
+  │   └── PhysicalServerSyncHandler   → endpoint: physical-servers
+  ├── syncLinks()             — Liens workstation ↔ application (via Computer_SoftwareVersion)
+  ├── syncActivityLinks()     — Liens activité ↔ application (via Appliance._items.Software)
+  └── Mapper                  — Transformation champ à champ GLPI → Mercator
+GlpiClient                   — Client HTTP GLPI (API REST v1, session-token)
+MercatorClient               — Client HTTP Mercator (API REST, Bearer token)
 ```
 
-Le connecteur repose sur le patron **Strategy** : chaque type d'item implémente l'interface `SyncHandler` avec ses propres paramètres de requête GLPI, son endpoint Mercator et sa logique de mapping. Ajouter un nouveau type revient à créer un handler et un mapper sans toucher au reste.
+**Clé de réconciliation** : les actifs sont mis en correspondance par `strtolower(name)` entre les deux systèmes.
+
+**Traçabilité** : à la création, l'identifiant GLPI est inscrit dans le champ `description` sous la forme `[glpi_id:42]`.
 
 ---
 
@@ -96,7 +92,7 @@ Le connecteur repose sur le patron **Strategy** : chaque type d'item implémente
 | Extension PHP `curl` | — |
 | Extension PHP `json` | — |
 
-**Côté GLPI**, l'API REST doit être activée et les tokens configurés (voir [Configuration GLPI](#configuration-glpi)).
+L'API REST GLPI doit être activée et les tokens configurés (voir [Configuration côté GLPI](#configuration-côté-glpi)).
 
 ---
 
@@ -111,7 +107,8 @@ cd mercator-glpi
 composer install --no-dev --optimize-autoloader
 
 # 3. Copier et compléter la configuration
-cp .env.example .env
+cp .env.sample .env
+# Renseignez les valeurs dans .env (voir section Configuration)
 ```
 
 ### GLPI en Docker (développement / test)
@@ -119,43 +116,52 @@ cp .env.example .env
 Un stack Docker est fourni pour tester contre une instance GLPI locale :
 
 ```bash
-# Démarrer GLPI
-./glpi.sh start
-
-# Voir le statut
-./glpi.sh status
-
-# Consulter les logs
-./glpi.sh logs
-
-# Arrêter
-./glpi.sh stop
+./glpi.sh start    # Démarre GLPI sur http://localhost:8080
+./glpi.sh status   # Affiche l'état des conteneurs
+./glpi.sh logs     # Consulte les logs en temps réel
+./glpi.sh stop     # Arrête les conteneurs
 ```
 
-GLPI sera accessible sur `http://localhost:8080`. Un wizard d'installation s'affiche au premier démarrage.
+Lors du premier démarrage, un wizard d'installation s'affiche dans le navigateur. Renseignez les paramètres de base de données suivants :
+
+| Champ | Valeur |
+|---|---|
+| Serveur SQL | `glpi-db` |
+| Utilisateur | `glpi` |
+| Mot de passe | `glpi` |
+| Base de données | `glpi` |
 
 ---
 
 ## Configuration
 
-### Fichier `.env`
+### Fichier .env — référence complète
 
-```ini
-# ── GLPI ──────────────────────────────────────────────────────────────────────
-GLPI_URL=https://glpi.exemple.fr
-GLPI_APP_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-GLPI_USER_TOKEN=yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy
+Copiez `.env.sample` vers `.env` et renseignez les valeurs :
 
-# ── Mercator ──────────────────────────────────────────────────────────────────
-MERCATOR_URL=https://mercator.exemple.fr
-MERCATOR_LOGIN=admin@exemple.fr
-MERCATOR_PASSWORD=motdepasse
+| Variable | Défaut | Description | Exemple |
+|---|---|---|---|
+| `GLPI_URL` | — | URL de base de l'instance GLPI (sans slash final) | `https://glpi.acme.fr` |
+| `GLPI_APP_TOKEN` | — | Token applicatif GLPI (Configuration → API → Clients de l'API) | `abc123…` |
+| `GLPI_USER_TOKEN` | — | Token utilisateur GLPI (Mon compte → Accès distant) | `xyz789…` |
+| `GLPI_ENTITY_ID` | _(vide)_ | ID de l'entité GLPI à synchroniser ; vide = toutes les entités | `3` |
+| `GLPI_ALLOWED_STATES` | _(vide)_ | Noms ou IDs de statuts autorisés, séparés par virgules ; vide = tous | `En production,En stock` |
+| `GLPI_ALLOWED_STATES_COMPUTERS` | _(vide)_ | Surcharge du filtre statut pour les `Computer` | `En production` |
+| `GLPI_ALLOWED_STATES_PHONES` | _(vide)_ | Surcharge du filtre statut pour les `Phone` | `En production` |
+| `GLPI_ALLOWED_STATES_PERIPHERALS` | _(vide)_ | Surcharge du filtre statut pour les `Peripheral` | — |
+| `GLPI_ALLOWED_STATES_SOFTWARE` | _(vide)_ | Surcharge du filtre statut pour les `Software` | — |
+| `GLPI_ALLOWED_STATES_NETWORK_EQUIPMENT` | _(vide)_ | Surcharge du filtre statut pour les `NetworkEquipment` | — |
+| `GLPI_ALLOWED_STATES_RACKS` | _(vide)_ | Surcharge du filtre statut pour les `Rack` | — |
+| `GLPI_COMPUTER_TYPES_WORKSTATIONS` | _(vide)_ | Noms ou IDs de `computertypes` routés vers `workstations` ; vide = tous | `Poste de travail,Laptop` |
+| `GLPI_COMPUTER_TYPES_LOGICAL_SERVERS` | _(vide)_ | Noms ou IDs de `computertypes` routés vers `logical-servers` ; vide = désactivé | `Machine virtuelle` |
+| `GLPI_COMPUTER_TYPES_PHYSICAL_SERVERS` | _(vide)_ | Noms ou IDs de `computertypes` routés vers `physical-servers` ; vide = désactivé | `Serveur physique` |
+| `MERCATOR_URL` | — | URL de base de l'instance Mercator (sans slash final) | `https://mercator.acme.fr` |
+| `MERCATOR_LOGIN` | — | Email du compte Mercator utilisé pour l'API | `sync@acme.fr` |
+| `MERCATOR_PASSWORD` | — | Mot de passe du compte Mercator | `motdepasse` |
+| `SYNC_DRY_RUN` | `false` | Si `true`, simule sans écrire dans Mercator | `true` |
+| `LOG_LEVEL` | `info` | Niveau de verbosité des logs (`debug`, `info`, `warning`, `error`) | `debug` |
 
-# ── Synchronisation ───────────────────────────────────────────────────────────
-SYNC_DRY_RUN=false
-```
-
-### Configuration GLPI
+### Configuration côté GLPI
 
 #### 1. Activer l'API REST
 
@@ -167,32 +173,27 @@ SYNC_DRY_RUN=false
 
 > **Configuration → Générale → API → Clients de l'API → Ajouter**
 > - Nom : `mercator-glpi-connector`
-> - Copier le token généré → `GLPI_APP_TOKEN`
+> - Copiez le token généré → `GLPI_APP_TOKEN` dans `.env`
 
 #### 3. Créer le `USER_TOKEN`
 
 > **Mon compte → Mes préférences → Accès distant (API) → Régénérer**
-> - Copier le token → `GLPI_USER_TOKEN`
+> - Copiez le token → `GLPI_USER_TOKEN` dans `.env`
 
-Le compte associé doit avoir accès en lecture aux types à synchroniser (Ordinateurs, Logiciels, Périphériques, Téléphones).
+Le compte associé doit avoir accès en lecture aux types à synchroniser (Ordinateurs, Logiciels, Périphériques, Téléphones, Équipements réseau, Baies…).
 
 #### 4. Vérifier la connexion
 
 ```bash
-php application glpi:sync --dry-run --type=workstations
+curl -H "Authorization: user_token $GLPI_USER_TOKEN" \
+     -H "App-Token: $GLPI_APP_TOKEN" \
+     "$GLPI_URL/apirest.php/initSession"
+# Attendu : {"session_token": "..."}
 ```
 
-### Résolution de la localisation
+### Configuration côté Mercator
 
-La localisation GLPI (`locations_id`) est résolue vers un `building_id` Mercator par **correspondance exacte du nom** (insensible à la casse). Si le nom de la salle GLPI correspond au nom d'un bâtiment Mercator, le `building_id` et le `site_id` associé sont automatiquement renseignés.
-
-```
-GLPI : locations_id = "Salle 101"
-         ↓ (lookup insensible à la casse)
-Mercator : buildings.name = "Salle 101" → building_id = 5, site_id = 1
-```
-
-Si aucun bâtiment ne correspond, `building_id` et `site_id` restent `null`.
+Le compte Mercator utilisé doit disposer des droits d'écriture (création + modification) sur tous les endpoints synchronisés. Aucune configuration supplémentaire n'est requise côté Mercator.
 
 ---
 
@@ -204,142 +205,256 @@ Si aucun bâtiment ne correspond, `building_id` et `site_id` restent `null`.
 php application glpi:sync
 ```
 
-Lance la synchronisation de tous les types dans l'ordre :
-`workstations → applications → peripherals → phones → links`
+Lance la synchronisation de tous les types dans l'ordre recommandé (voir ci-dessous).
 
-### Synchronisation d'un type spécifique
+### Ordre d'exécution et dépendances
+
+Certains types doivent être synchronisés avant d'autres pour que les liens et résolutions de FK fonctionnent correctement :
+
+```
+ 1. locations       → crée les buildings Mercator (building_id utilisé par les autres types)
+ 2. applications    → crée le catalogue applicatif (nécessaire pour links et activity_links)
+ 3. appliances      → crée les activities (nécessaire pour activity_links)
+ 4. workstations    ┐
+ 5. peripherals     │
+ 6. phones          │ peuvent s'exécuter dans n'importe quel ordre
+ 7. network_devices │ une fois que locations est fait
+ 8. racks           │
+ 9. logical_servers │
+10. physical_servers┘
+11. links           → lie les workstations ↔ applications (nécessite 1 et 2)
+12. activity_links  → lie les activities ↔ applications (nécessite 2 et 3)
+```
+
+Cet ordre est appliqué automatiquement lors de la synchronisation complète (`php application glpi:sync`).
+
+### Synchronisation par type
 
 ```bash
-php application glpi:sync --type=workstations
+php application glpi:sync --type=locations
 php application glpi:sync --type=applications
+php application glpi:sync --type=appliances
+php application glpi:sync --type=workstations
 php application glpi:sync --type=peripherals
 php application glpi:sync --type=phones
-php application glpi:sync --type=links        # liens workstation↔application
+php application glpi:sync --type=network_devices
+php application glpi:sync --type=racks
+php application glpi:sync --type=logical_servers
+php application glpi:sync --type=physical_servers
+php application glpi:sync --type=links           # liens workstation ↔ application
+php application glpi:sync --type=activity_links  # liens activité ↔ application
 ```
 
-### Mode simulation (dry-run)
+### Options disponibles
 
-Simule la synchronisation sans écrire dans Mercator. Utile pour valider la configuration avant le premier run réel.
+| Option | Défaut | Description |
+|---|---|---|
+| `--type=<type>` | tous les types | Type d'actif à synchroniser (répétable) |
+| `--dry-run` | `false` | Simule la synchronisation sans écrire dans Mercator |
+| `--entity=<id>` | valeur de `GLPI_ENTITY_ID` | Filtre sur une entité GLPI précise (récursif) |
+
+### Exemples de commandes courantes
 
 ```bash
+# Synchronisation complète en simulation (valider avant le premier run réel)
 php application glpi:sync --dry-run
-```
 
-### Exemple de sortie
+# Synchroniser uniquement les postes de travail de l'entité 3
+php application glpi:sync --type=workstations --entity=3
 
-```
-╔══════════════════════════════════════╗
-║   Mercator ← GLPI Synchronisation    ║
-╚══════════════════════════════════════╝
-  Authentification GLPI…
-  ✔ GLPI connecté
-  Authentification Mercator…
-  ✔ Mercator connecté
+# Synchroniser plusieurs types sans toucher aux autres
+php application glpi:sync --type=workstations --type=applications
 
-  ─── workstations ───
-  +3 créés  ~12 mis à jour  -0 supprimés  0 OLD  0 erreurs
+# Rafraîchir uniquement les liens (après ajout de logiciels dans GLPI)
+php application glpi:sync --type=links --type=activity_links
 
-  ─── applications ───
-  +1 créés  ~8 mis à jour  -0 supprimés  0 OLD  0 erreurs
+# Vérifier que les équipements réseau sont bien mappés (simulation)
+php application glpi:sync --dry-run --type=network_devices
 
-  ─── peripherals ───
-  +2 créés  ~5 mis à jour  -0 supprimés  0 OLD  0 erreurs
-
-  ─── phones ───
-  +0 créés  ~4 mis à jour  -0 supprimés  0 OLD  0 erreurs
-
-  ─── links ───
-  ~10 mis à jour  2 ignorés  0 erreurs
-
-─── Résumé ───────────────────────────────
-  +6 créés  ~39 mis à jour  -0 supprimés  0 OLD  0 erreurs
-  Durée : 3.2s
+# Synchroniser les serveurs logiques et physiques
+php application glpi:sync --type=logical_servers --type=physical_servers
 ```
 
 ---
 
-## Types synchronisés
+## Types d'actifs synchronisés
 
-### Postes de travail (`Computer` → `workstations`)
+### Tableau de correspondance GLPI → Mercator
+
+| Option `--type` | Source GLPI | Endpoint Mercator | Nature |
+|---|---|---|---|
+| `locations` | `Location` | `buildings` | actifs |
+| `applications` | `Software` | `applications` | actifs |
+| `appliances` | `Appliance` | `activities` | actifs |
+| `workstations` | `Computer` (filtré par `GLPI_COMPUTER_TYPES_WORKSTATIONS`) | `workstations` | actifs |
+| `peripherals` | `Peripheral` | `peripherals` | actifs |
+| `phones` | `Phone` | `phones` | actifs |
+| `network_devices` | `NetworkEquipment` | `physical-switches` | actifs |
+| `racks` | `Rack` | `bays` | actifs |
+| `logical_servers` | `Computer` (filtré par `GLPI_COMPUTER_TYPES_LOGICAL_SERVERS`) | `logical-servers` | actifs |
+| `physical_servers` | `Computer` (filtré par `GLPI_COMPUTER_TYPES_PHYSICAL_SERVERS`) | `physical-servers` | actifs |
+| `links` | `Computer_SoftwareVersion` | pivot `workstation_application` | liens |
+| `activity_links` | `Appliance._items.Software` | pivot `activity_application` | liens |
+
+### Détail des champs par type
+
+#### Bâtiments (`Location` → `buildings`)
 
 | Champ GLPI | Champ Mercator |
 |---|---|
 | `name` | `name` |
-| `comment` | `description` |
-| `computertypes_id` | `type` |
-| `manufacturers_id` | `manufacturer` |
-| `computermodels_id` | `model` |
-| `serial` | `serial_number` |
-| `otherserial` | `inventaire_number` |
-| `operatingsystems_id` | `operating_system` |
-| `states_id` | `status` |
-| `users_id` | `other_user` |
-| `locations_id` | `building_id` + `site_id` |
-| Premier port réseau IPv4 | `address_ip` |
-| Premier port MAC | `mac_address` |
-| `ram` | `memory` |
-| Premier CPU (`_devices`) | `cpu` |
-| Somme des disques | `disk` |
-| `infocoms.buy_date` | `purchase_date` |
-| `infocoms.warranty_expiration` | `warranty_end_date` |
-| `"GLPI"` | `update_source` |
+| `comment` | `description` (préfixé de `[glpi_id:N]`) |
 
-### Logiciels (`Software` → `applications`)
+> Les bâtiments créés ici servent de référence pour résoudre `building_id` et `site_id` dans tous les autres types d'actifs (workstations, physical-switches…). **Synchroniser `locations` en premier.**
+
+#### Logiciels (`Software` → `applications`)
 
 | Champ GLPI | Champ Mercator |
 |---|---|
 | `name` | `name` + `product` |
-| `comment` | `description` |
+| `comment` | `description` (préfixé de `[glpi_id:N]`) |
 | `manufacturers_id` | `vendor` + `editor` |
 | `softwarecategories_id` | `type` |
 | `users_id_tech` | `responsible` |
 | `date` | `install_date` |
 
-### Périphériques (`Peripheral` → `peripherals`)
+> Le catalogue applicatif doit exister avant de synchroniser `links` et `activity_links`. **Synchroniser `applications` avant ces deux types.**
+
+#### Activités (`Appliance` → `activities`)
 
 | Champ GLPI | Champ Mercator |
 |---|---|
 | `name` | `name` |
-| `comment` | `description` |
-| `manufacturers_id` | `vendor` |
-| `peripheraltypes_id` | `type` |
-| `peripheralmodels_id` | `product` |
+| `comment` | `description` (préfixé de `[glpi_id:N]`) |
 | `users_id_tech` | `responsible` |
-| `locations_id` | `building_id` + `site_id` |
-| Premier port réseau IPv4 | `address_ip` |
 
-### Téléphones (`Phone` → `phones`)
+#### Postes de travail (`Computer` → `workstations`)
 
 | Champ GLPI | Champ Mercator |
 |---|---|
 | `name` | `name` |
-| `comment` | `description` |
-| `manufacturers_id` | `vendor` |
-| `phonetypes_id` | `type` |
-| `phonemodels_id` | `product` |
-| `locations_id` | `building_id` + `site_id` |
-| Premier port réseau IPv4 | `address_ip` |
+| `comment` | `description` (préfixé de `[glpi_id:N]`) |
+| `computertypes_id` | `type` |
+| `manufacturers_id` | `manufacturer` |
+| `computermodels_id` | `model` |
+| `serial` | `serial_number` |
+| `operatingsystems_id` | `operating_system` |
+| `states_id` | `status` |
+| `users_id` | `other_user` |
+| `locations_id` | `building_id` + `site_id` (résolution par nom) |
+| Premier port IPv4 | `address_ip` |
+| Premier port MAC | `mac_address` |
+| `ram` | `memory` (formaté en Go ou Mo) |
+| Premier CPU (`_devices`) | `cpu` |
+| Somme des disques | `disk` |
+| `_infocoms.buy_date` | `purchase_date` |
+| `_infocoms.warranty_expiration` | `warranty_end_date` |
+| `"GLPI"` | `update_source` |
 
-### Liens logiciels (`links`)
+#### Équipements réseau (`NetworkEquipment` → `physical-switches`)
 
-Pour chaque poste de travail présent dans Mercator, le connecteur récupère les logiciels installés depuis GLPI (`GET /Computer/{id}?with_softwares=1`) et met à jour les associations `application_workstation` dans Mercator.
+| Champ GLPI | Champ Mercator |
+|---|---|
+| `name` | `name` |
+| `comment` | `description` (préfixé de `[glpi_id:N]`) |
+| `networkequipmenttypes_id` | `type` |
+| `locations_id` | `building_id` + `site_id` (résolution par nom) |
+
+#### Baies (`Rack` → `bays`)
+
+| Champ GLPI | Champ Mercator |
+|---|---|
+| `name` | `name` |
+| `comment` | `description` (préfixé de `[glpi_id:N]`) |
+| `locations_id` | `room_id` (résolution par nom dans les bâtiments Mercator) |
+
+#### Liens workstation ↔ application (`links`)
+
+Pour chaque poste de travail présent dans Mercator, récupère individuellement ses logiciels installés depuis GLPI (`with_softwares=1`) et met à jour le pivot `workstation_application`.
+
+Source GLPI : `Computer._softwares[].softwares_id` (nom du logiciel).
+
+#### Liens activité ↔ application (`activity_links`)
+
+Pour chaque appliance présente dans Mercator en tant qu'activité, récupère individuellement ses logiciels liés depuis GLPI (`with_items=1`) et met à jour le pivot `activity_application` côté application.
+
+Source GLPI : `Appliance._items.Software[].name` (logiciels directement rattachés à l'appliance dans GLPI).
+
+**Prérequis** : `applications` et `appliances` doivent avoir été synchronisés au préalable.
+
+**Résolution de la localisation** : le champ `locations_id` GLPI (nom de bâtiment ou salle) est mis en correspondance par nom (insensible à la casse) avec les bâtiments Mercator. Si le nom correspond, `building_id` et `site_id` sont renseignés automatiquement. Il est donc recommandé de synchroniser `locations` en premier.
 
 ---
 
-## Logique de synchronisation
+## Filtrage des actifs
 
+### Par entité GLPI
+
+Pour synchroniser uniquement les actifs d'une entité GLPI précise, renseignez son ID. L'ID est visible dans **Administration → Entités** dans GLPI.
+
+```bash
+# Via option CLI (priorité absolue sur .env)
+php application glpi:sync --entity=3
+
+# Via .env (appliqué à toutes les exécutions)
+GLPI_ENTITY_ID=3
 ```
-Pour chaque item GLPI :
-  ├─ Si le nom existe dans Mercator → MISE À JOUR (PUT)
-  └─ Sinon                          → CRÉATION (POST)
 
-Pour chaque item Mercator absent de GLPI :
-  └─ Conservé tel quel (aucune modification)
+Le filtrage est **récursif** : les sous-entités sont également incluses (`is_recursive=1`).
+
+### Par statut
+
+Permet de n'importer que les actifs dans des états précis (ex : exclure les actifs "Mis au rebut").
+
+Les valeurs peuvent être des **noms de statuts** (tels qu'ils apparaissent dans GLPI avec dropdowns expandés) ou des **IDs numériques**.
+
+```ini
+# Accepter uniquement les actifs en production et en stock
+GLPI_ALLOWED_STATES=En production,En stock
+
+# Surcharger pour les ordinateurs seulement (prioritaire sur GLPI_ALLOWED_STATES)
+GLPI_ALLOWED_STATES_COMPUTERS=En production
+
+# Laisser vide pour désactiver le filtre sur les téléphones
+GLPI_ALLOWED_STATES_PHONES=
 ```
 
-**Traçabilité** : lors de la création, le connecteur embarque l'identifiant GLPI dans le champ `description` sous la forme `[glpi_id:42]`. Cela permet d'identifier l'origine de chaque entrée Mercator.
+**Priorité** : la config spécifique au type (`GLPI_ALLOWED_STATES_COMPUTERS`) est prioritaire sur la config globale (`GLPI_ALLOWED_STATES`). Si les deux sont vides, aucun filtrage n'est appliqué (tous les statuts sont acceptés).
 
-**Non-destructif** : le connecteur ne supprime jamais d'entrée dans Mercator. Les éléments présents dans Mercator mais absents de GLPI sont ignorés — ils peuvent avoir été créés manuellement ou provenir d'une autre source.
+### Par sous-type (Computer)
+
+Dans GLPI, le type `Computer` regroupe des actifs hétérogènes (postes de travail, laptops, serveurs physiques, VMs…). Ce filtrage permet de router chaque sous-type vers le bon endpoint Mercator.
+
+Les valeurs peuvent être des **noms de types** (tels qu'ils apparaissent dans GLPI) ou des **IDs numériques**.
+
+```ini
+# Postes de travail et laptops → workstations
+GLPI_COMPUTER_TYPES_WORKSTATIONS=Poste de travail,Laptop
+
+# VMs et conteneurs → logical-servers
+GLPI_COMPUTER_TYPES_LOGICAL_SERVERS=Machine virtuelle,Conteneur
+
+# Serveurs physiques → physical-servers
+GLPI_COMPUTER_TYPES_PHYSICAL_SERVERS=Serveur physique
+```
+
+> **Important** : `GLPI_COMPUTER_TYPES_WORKSTATIONS` vide = tous les `Computer` vont dans `workstations` (rétrocompatible). En revanche, `GLPI_COMPUTER_TYPES_LOGICAL_SERVERS` et `GLPI_COMPUTER_TYPES_PHYSICAL_SERVERS` vides = **désactivé** (opt-in explicite requis).
+
+**Combinaison des filtres :**
+
+```bash
+# Synchroniser uniquement les serveurs physiques en production de l'entité 1
+php application glpi:sync \
+  --type=physical_servers \
+  --entity=1
+```
+
+```ini
+# .env correspondant
+GLPI_COMPUTER_TYPES_PHYSICAL_SERVERS=Serveur physique
+GLPI_ALLOWED_STATES_COMPUTERS=En production
+GLPI_ENTITY_ID=1
+```
 
 ---
 
@@ -358,7 +473,198 @@ La fréquence est configurable dans `app/Console/Kernel.php` :
 $schedule->command('glpi:sync')->dailyAt('02:00');
 ```
 
-Les logs de synchronisation sont écrits dans `storage/logs/laravel.log`.
+Les logs sont écrits dans `storage/logs/laravel.log`.
+
+---
+
+## Logs et diagnostic
+
+### Activer les logs debug
+
+Renseignez dans `.env` :
+
+```ini
+LOG_LEVEL=debug
+```
+
+En mode debug, chaque requête HTTP (URL, code retour, corps en cas d'erreur) et chaque item traité (action CREATE/UPDATE, payload tronqué à 500 caractères) sont journalisés.
+
+### Lire les logs
+
+```bash
+# Suivre les logs en temps réel
+tail -f storage/logs/laravel.log
+
+# Filtrer par type d'actif
+grep "\[workstations\]" storage/logs/laravel.log
+
+# Filtrer les erreurs uniquement
+grep "ERROR" storage/logs/laravel.log
+
+# Filtrer les liens workstation↔application
+grep "\[links\]" storage/logs/laravel.log
+
+# Filtrer les liens activité↔application
+grep "\[activity_links\]" storage/logs/laravel.log
+```
+
+**Exemples de messages debug et leur interprétation :**
+
+```
+[2024-06-01 02:00:01] DEBUG: [GLPI] GET Computer {"params":{"entities_id":3,"is_recursive":1}}
+→ Requête vers GLPI pour les ordinateurs de l'entité 3
+
+[2024-06-01 02:00:02] DEBUG: [workstations] Filtre statut [Computer] : 5 item(s) exclus, 37 conservé(s)
+→ 5 ordinateurs exclus car leur statut n'est pas dans GLPI_ALLOWED_STATES_COMPUTERS
+
+[2024-06-01 02:00:03] DEBUG: [workstations] CREATE PC-NOUVEAU-01 — payload: {"name":"PC-NOUVEAU-01",...}
+→ Ce poste n'existe pas encore dans Mercator — il sera créé
+
+[2024-06-01 02:00:04] INFO:  [links] PC-DIDIER-01 → 3 application(s) : [20, 21, 22]
+→ 3 applications liées au poste dans Mercator
+
+[2024-06-01 02:00:05] INFO:  [activity_links] ERP → 2 activité(s) : [100, 101]
+→ L'application ERP est liée à 2 activités dans Mercator
+
+[2024-06-01 02:00:06] DEBUG: [activity_links] Appliance sans activité Mercator : MON-APP
+→ L'appliance "MON-APP" n'a pas de correspondance dans les activités Mercator
+   (vérifier que --type=appliances a bien été exécuté avant)
+```
+
+### Cas d'erreurs fréquents et solutions
+
+#### Authentification GLPI échoue (401)
+
+```
+Échec de l'authentification : 401
+```
+
+Vérifications :
+- L'API REST est activée dans GLPI (**Configuration → Générale → API**)
+- `GLPI_APP_TOKEN` et `GLPI_USER_TOKEN` sont corrects et non expirés
+
+Test manuel :
+```bash
+curl -H "Authorization: user_token $GLPI_USER_TOKEN" \
+     -H "App-Token: $GLPI_APP_TOKEN" \
+     "$GLPI_URL/apirest.php/initSession"
+# Attendu : {"session_token": "..."}
+```
+
+#### Workstations non synchronisées (mauvais filtre de type ou de statut)
+
+Les ordinateurs existent dans GLPI mais n'apparaissent pas dans Mercator.
+
+Vérifications :
+1. Si `GLPI_COMPUTER_TYPES_WORKSTATIONS` est renseigné, les noms doivent correspondre exactement aux `computertypes` GLPI (avec `expand_dropdowns=1`, le nom est retourné, pas l'ID numérique).
+2. Si `GLPI_ALLOWED_STATES` ou `GLPI_ALLOWED_STATES_COMPUTERS` est renseigné, vérifiez les valeurs autorisées.
+3. Activez `LOG_LEVEL=debug` pour voir les items filtrés.
+
+```bash
+php application glpi:sync --dry-run --type=workstations
+```
+
+#### `building_id` null (correspondance localisation)
+
+Le champ `building_id` reste vide dans Mercator après la sync.
+
+**Cause** : le nom de la localisation GLPI (`locations_id`) ne correspond à aucun bâtiment Mercator.
+
+Vérifiez que les `Location` GLPI ont bien été synchronisées vers `buildings` Mercator en premier :
+
+```bash
+php application glpi:sync --type=locations
+```
+
+Puis comparez les noms :
+
+```bash
+# Noms des localisations GLPI
+curl -H "Session-Token: $SESSION" -H "App-Token: $APP_TOKEN" \
+  "$GLPI_URL/apirest.php/Location" | jq '.[].name'
+
+# Noms des bâtiments Mercator
+curl -H "Authorization: Bearer $TOKEN" \
+  "$MERCATOR_URL/api/buildings" | jq '.data[].name'
+```
+
+Les noms doivent correspondre exactement (insensible à la casse).
+
+#### Aucun lien workstation↔application créé
+
+Prérequis :
+1. La sync `workstations` doit avoir été exécutée avant `links`
+2. La sync `applications` doit avoir été exécutée avant `links`
+3. Les logiciels doivent être installés sur les postes dans GLPI (via GLPI Agent ou saisie manuelle)
+
+```bash
+LOG_LEVEL=debug php application glpi:sync --type=links
+grep "\[links\]" storage/logs/laravel.log
+```
+
+#### Aucun lien activité↔application créé
+
+Prérequis :
+1. La sync `appliances` doit avoir été exécutée avant `activity_links` (pour créer les activités)
+2. La sync `applications` doit avoir été exécutée avant `activity_links` (pour créer le catalogue)
+3. Les logiciels doivent être **directement rattachés aux Appliances** dans GLPI (onglet "Éléments liés" → Software)
+
+```bash
+LOG_LEVEL=debug php application glpi:sync --type=activity_links
+grep "\[activity_links\]" storage/logs/laravel.log
+```
+
+---
+
+## Étendre le connecteur
+
+Pour ajouter un nouveau type d'actif GLPI (ex. `Certificate` → `certificates`) :
+
+**1. Créer le mapper** `app/Services/Glpi/Mappers/CertificateMapper.php`
+
+```php
+class CertificateMapper
+{
+    public function map(array $item, array $context): array
+    {
+        return array_filter([
+            'name'        => $item['name'],
+            'description' => '[glpi_id:' . $item['id'] . '] ' . trim($item['comment'] ?? ''),
+            // ... autres champs
+        ], fn($v) => $v !== null);
+    }
+}
+```
+
+**2. Créer le handler** `app/Services/Glpi/Handlers/CertificateSyncHandler.php`
+
+```php
+class CertificateSyncHandler implements SyncHandler
+{
+    public function __construct(private readonly CertificateMapper $mapper) {}
+    public function glpiItemType(): string        { return 'Certificate'; }
+    public function mercatorEndpoint(): string    { return 'certificates'; }
+    public function glpiQueryParams(): array      { return ['range' => '0-999', 'expand_dropdowns' => 1]; }
+    public function processOrphans(): bool        { return false; }
+    public function filterItem(array $item): bool { return true; }
+    public function map(array $glpiItem, array $context): array { return $this->mapper->map($glpiItem, $context); }
+}
+```
+
+**3. Enregistrer** dans `AppServiceProvider::register()` :
+
+```php
+$this->app->singleton(CertificateMapper::class);
+$this->app->singleton(CertificateSyncHandler::class, fn($app) =>
+    new CertificateSyncHandler($app->make(CertificateMapper::class))
+);
+```
+
+**4. Ajouter au tableau** `$handlers` de `GlpiSyncCommand` et à `$defaultTypes` à la bonne position :
+
+```php
+'certificates' => CertificateSyncHandler::class,
+```
 
 ---
 
@@ -368,122 +674,38 @@ Les logs de synchronisation sont écrits dans `storage/logs/laravel.log`.
 # Tous les tests
 ./vendor/bin/pest
 
-# Suite spécifique
+# Fichier spécifique
 ./vendor/bin/pest tests/Unit/WorkstationMapperTest.php
-./vendor/bin/pest tests/Unit/GlpiSyncServiceTest.php
-./vendor/bin/pest tests/Unit/GlpiSyncServiceLinksTest.php
+./vendor/bin/pest tests/Unit/GlpiActivityLinksTest.php
+./vendor/bin/pest tests/Unit/GlpiStatusFilterTest.php
+./vendor/bin/pest tests/Unit/ComputerTypeFilterTest.php
 
 # Avec couverture de code
 ./vendor/bin/pest --coverage
 ```
 
-Les tests utilisent **Mockery** pour simuler les clients HTTP (aucun appel réseau réel). Les fixtures JSON dans `tests/Fixtures/` représentent des réponses réalistes des APIs GLPI et Mercator.
+Les tests utilisent **Mockery** — aucun appel réseau réel. Les fixtures JSON réalistes se trouvent dans `tests/Fixtures/`.
 
-| Suite | Fichier | Ce qui est testé |
-|---|---|---|
-| Unit | `WorkstationMapperTest` | Mapping de tous les champs workstation |
-| Unit | `ApplicationMapperTest` | Mapping des champs application |
-| Unit | `PeripheralMapperTest` | Mapping des champs périphérique |
-| Unit | `PhoneMapperTest` | Mapping des champs téléphone |
-| Unit | `GlpiSyncServiceTest` | Logique create/update/orphelin |
-| Unit | `GlpiSyncServiceLinksTest` | Synchronisation des liens |
-| Feature | `GlpiSyncCommandTest` | Intégration commande CLI |
-
----
-
-## Étendre le connecteur
-
-Pour ajouter un nouveau type d'item GLPI (ex. `NetworkEquipment` → `network_devices`) :
-
-**1. Créer le mapper**
-
-```php
-// app/Services/Glpi/Mappers/NetworkDeviceMapper.php
-class NetworkDeviceMapper
-{
-    public function map(array $item, array $context): array
-    {
-        return array_filter([
-            'name'        => $item['name'],
-            'description' => '[glpi_id:' . $item['id'] . '] ' . ($item['comment'] ?? ''),
-            // ... autres champs
-        ], fn($v) => $v !== null);
-    }
-}
-```
-
-**2. Créer le handler**
-
-```php
-// app/Services/Glpi/Handlers/NetworkDeviceSyncHandler.php
-class NetworkDeviceSyncHandler implements SyncHandler
-{
-    public function glpiItemType(): string    { return 'NetworkEquipment'; }
-    public function mercatorEndpoint(): string { return 'network_devices'; }
-    public function processOrphans(): bool    { return false; }
-    public function glpiQueryParams(): array  { return ['range' => '0-999', 'expand_dropdowns' => 1]; }
-    public function map(array $item, array $context): array { return $this->mapper->map($item, $context); }
-}
-```
-
-**3. Enregistrer dans `AppServiceProvider` et `GlpiSyncCommand`**
-
-```php
-// AppServiceProvider::register()
-$this->app->singleton(NetworkDeviceSyncHandler::class, fn($app) =>
-    new NetworkDeviceSyncHandler($app->make(NetworkDeviceMapper::class))
-);
-
-// GlpiSyncCommand::$handlers
-'network_devices' => NetworkDeviceSyncHandler::class,
-```
+| Suite | Ce qui est testé |
+|---|---|
+| `WorkstationMapperTest` | Mapping complet d'un Computer GLPI |
+| `ApplicationMapperTest` | Mapping d'un Software GLPI |
+| `PeripheralMapperTest` | Mapping d'un Peripheral GLPI |
+| `PhoneMapperTest` | Mapping d'un Phone GLPI |
+| `NetworkDeviceMapperTest` | Mapping d'un NetworkEquipment → PhysicalSwitch |
+| `RackMapperTest` | Mapping d'un Rack → Bay |
+| `ApplianceMapperTest` | Mapping d'une Appliance → Activity |
+| `LocationMapperTest` | Mapping d'une Location → Building |
+| `GlpiSyncServiceTest` | Logique create / update / orphelins |
+| `GlpiSyncServiceLinksTest` | Liens workstation ↔ application (`syncLinks`) |
+| `GlpiActivityLinksTest` | Liens activité ↔ application (`syncActivityLinks`) |
+| `GlpiEntityFilterTest` | Filtrage par entité GLPI (`--entity`, `GLPI_ENTITY_ID`) |
+| `GlpiStatusFilterTest` | Filtrage par statut (`GLPI_ALLOWED_STATES*`) |
+| `ComputerTypeFilterTest` | Filtrage par sous-type Computer (`GLPI_COMPUTER_TYPES_*`) |
+| `GlpiSyncCommandTest` | Intégration commande CLI |
 
 ---
 
-## Dépannage
+## Licence
 
-### Authentification GLPI échoue
-
-```
-✘ Échec de l'authentification : 401
-```
-
-- Vérifier que l'API REST est activée dans GLPI (**Configuration → Générale → API**)
-- Vérifier les valeurs de `GLPI_APP_TOKEN` et `GLPI_USER_TOKEN` dans le `.env`
-- Tester manuellement :
-  ```bash
-  curl -H "Authorization: user_token $USER_TOKEN" \
-       -H "App-Token: $APP_TOKEN" \
-       "$GLPI_URL/apirest.php/initSession"
-  ```
-
-### Aucun lien workstation↔application créé
-
-Les liens ne sont créés que si :
-1. Le poste de travail existe dans Mercator (sync `workstations` effectuée)
-2. Le logiciel existe dans Mercator (sync `applications` effectuée)
-3. Le logiciel est installé sur le poste dans GLPI (via GLPI Agent ou saisie manuelle)
-
-Vérifier les logs : `grep "\[links\]" storage/logs/laravel.log`
-
-### La localisation n'est pas résolue (`building_id` null)
-
-Le nom de la **salle GLPI** doit correspondre exactement (insensible à la casse) au nom d'un **bâtiment Mercator**. Vérifier :
-
-```bash
-# Noms des salles GLPI
-curl -H "Session-Token: $SESSION" -H "App-Token: $APP_TOKEN" \
-  "$GLPI_URL/apirest.php/Location" | jq '.[].name'
-
-# Noms des bâtiments Mercator
-curl -H "Authorization: Bearer $TOKEN" \
-  "$MERCATOR_URL/api/buildings" | jq '.data[].name'
-```
-
-### Logs de débogage
-
-Passer le niveau de log en `debug` dans `config/logging.php` pour voir les payloads envoyés à Mercator :
-
-```php
-'level' => env('LOG_LEVEL', 'debug'),
-```
+Ce projet est distribué sous licence **GPL**. Voir le fichier [LICENSE](LICENSE) pour les détails.
