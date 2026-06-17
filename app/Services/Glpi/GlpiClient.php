@@ -25,6 +25,10 @@ class GlpiClient implements GlpiClientInterface
     public function setEntityId(?int $entityId): void
     {
         $this->entityId = $entityId;
+
+        if ($this->sessionToken !== null && $entityId !== null) {
+            $this->changeActiveEntities($entityId);
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -51,6 +55,33 @@ class GlpiClient implements GlpiClientInterface
         }
 
         $this->sessionToken = $response->json('session_token');
+
+        // L'API GLPI ignore "entities_id"/"is_recursive" passés en query string sur les
+        // endpoints de listing : la restriction d'entité doit être appliquée sur la
+        // session via changeActiveEntities, sans quoi tous les items (toutes entités) sont retournés.
+        if ($this->entityId !== null) {
+            $this->changeActiveEntities($this->entityId);
+        }
+    }
+
+    private function changeActiveEntities(int $entityId): void
+    {
+        $url = $this->url('changeActiveEntities');
+        Log::debug('[GLPI] POST changeActiveEntities', ['entities_id' => $entityId, 'is_recursive' => true]);
+
+        $response = $this->request()->post($url, [
+            'entities_id'  => $entityId,
+            'is_recursive' => true,
+        ]);
+
+        Log::debug('[GLPI] changeActiveEntities → HTTP ' . $response->status());
+
+        if ($response->failed()) {
+            Log::debug('[GLPI] Erreur changeActiveEntities : ' . $response->body());
+            throw new RuntimeException(
+                'Changement d\'entité active GLPI échoué : ' . $response->status()
+            );
+        }
     }
 
     public function killSession(): void

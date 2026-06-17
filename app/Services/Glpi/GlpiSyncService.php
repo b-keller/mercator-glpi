@@ -11,6 +11,13 @@ use Throwable;
 class GlpiSyncService
 {
     /**
+     * Itemtypes GLPI ne possédant pas d'attribut "statut" (states_id).
+     * Le filtrage par statut est ignoré pour ces types, quelle que soit
+     * la config GLPI_ALLOWED_STATES / GLPI_ALLOWED_STATES_<TYPE>.
+     */
+    private const STATELESS_ITEM_TYPES = ['Location'];
+
+    /**
      * Synchronise un type d'item GLPI vers Mercator.
      *
      * Retourne un tableau de stats. Si l'endpoint Mercator n'existe pas (HTTP 404),
@@ -41,7 +48,9 @@ class GlpiSyncService
 
         // ── 2. Filtrage par statut (Évolution 2) ──────────────────────────────
 
-        $allowedStates = $this->resolveAllowedStates($handler->glpiItemType());
+        $allowedStates = in_array($handler->glpiItemType(), self::STATELESS_ITEM_TYPES, true)
+            ? []
+            : $this->resolveAllowedStates($handler->glpiItemType());
 
         if (! empty($allowedStates)) {
             $before     = count($glpiItems);
