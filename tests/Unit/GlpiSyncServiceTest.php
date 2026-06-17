@@ -20,6 +20,7 @@ function glpiMock(array $items = []): \Mockery\MockInterface
 {
     $mock = Mockery::mock(GlpiClientInterface::class);
     $mock->shouldReceive('getItems')->andReturn($items);
+    $mock->shouldReceive('getItem')->andReturn([]);
     return $mock;
 }
 
@@ -75,6 +76,40 @@ it('inclut le tag glpi_id dans la description lors de la création', function ()
 
     $didier = collect($created)->firstWhere('name', 'PC-DIDIER-01');
     expect($didier['description'])->toStartWith('[glpi_id:42]');
+});
+
+// ── Enrichissement item par item (with_networkports, with_disks…) ─────────────
+
+it('ne demande pas with_networkports/with_devices/with_disks/with_infocoms sur la collection', function () {
+    $params = makeHandler()->glpiQueryParams();
+
+    expect($params)->not->toHaveKey('with_networkports');
+    expect($params)->not->toHaveKey('with_devices');
+    expect($params)->not->toHaveKey('with_disks');
+    expect($params)->not->toHaveKey('with_infocoms');
+});
+
+it('enrichit chaque item via getItem() et fusionne le détail avant le mapping', function () {
+    $items = [glpiComputersFixture()[0]];
+
+    $glpi = Mockery::mock(GlpiClientInterface::class);
+    $glpi->shouldReceive('getItems')->andReturn($items);
+    $glpi->shouldReceive('getItem')
+        ->once()
+        ->with('Computer', $items[0]['id'], makeHandler()->glpiDetailParams())
+        ->andReturn(['ram' => 8192]);
+
+    $created  = [];
+    $mercator = mercatorMock([], mercatorBuildingsFixture());
+    $mercator->shouldReceive('create')
+        ->andReturnUsing(function (string $ep, array $payload) use (&$created) {
+            $created[] = $payload;
+            return ['id' => 99];
+        });
+
+    (new GlpiSyncService())->sync($glpi, $mercator, makeHandler());
+
+    expect($created[0]['memory'])->toBe('8 Go');
 });
 
 // ── Mise à jour ───────────────────────────────────────────────────────────────

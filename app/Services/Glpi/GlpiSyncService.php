@@ -3,6 +3,7 @@
 namespace App\Services\Glpi;
 
 use App\Services\Glpi\Contracts\GlpiClientInterface;
+use App\Services\Glpi\Contracts\SupportsGlpiItemDetail;
 use App\Services\Glpi\Contracts\SyncHandler;
 use App\Services\Mercator\Contracts\MercatorClientInterface;
 use Illuminate\Support\Facades\Log;
@@ -70,6 +71,22 @@ class GlpiSyncService
 
         if ($excluded > 0) {
             Log::debug("[{$endpoint}] Filtre sous-type : {$excluded} item(s) exclus, " . count($glpiItems) . ' conservé(s)');
+        }
+
+        // ── 3b. Enrichissement item par item (with_networkports, with_disks…) ─
+
+        if ($handler instanceof SupportsGlpiItemDetail) {
+            $detailParams = $handler->glpiDetailParams();
+
+            foreach ($glpiItems as &$item) {
+                $item = array_merge(
+                    $item,
+                    $glpi->getItem($handler->glpiItemType(), $item['id'], $detailParams)
+                );
+            }
+            unset($item);
+
+            Log::debug("[{$endpoint}] Enrichissement détaillé : " . count($glpiItems) . ' item(s)');
         }
 
         // ── 4. Chargement Mercator ────────────────────────────────────────────

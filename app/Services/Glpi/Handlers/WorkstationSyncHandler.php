@@ -2,10 +2,11 @@
 
 namespace App\Services\Glpi\Handlers;
 
+use App\Services\Glpi\Contracts\SupportsGlpiItemDetail;
 use App\Services\Glpi\Contracts\SyncHandler;
 use App\Services\Glpi\Mappers\WorkstationMapper;
 
-class WorkstationSyncHandler implements SyncHandler
+class WorkstationSyncHandler implements SyncHandler, SupportsGlpiItemDetail
 {
     public function __construct(private readonly WorkstationMapper $mapper) {}
 
@@ -22,7 +23,19 @@ class WorkstationSyncHandler implements SyncHandler
     public function glpiQueryParams(): array
     {
         return [
-            'range'             => '0-999',
+            'range'            => '0-999',
+            'expand_dropdowns' => 1,
+        ];
+    }
+
+    /**
+     * with_networkports/with_devices/with_disks/with_infocoms ne sont pas fiables
+     * sur la requête de collection (GLPI peut renvoyer 0 item) : ils sont demandés
+     * item par item après filtrage.
+     */
+    public function glpiDetailParams(): array
+    {
+        return [
             'expand_dropdowns'  => 1,
             'with_networkports' => 1,
             'with_devices'      => 1,
