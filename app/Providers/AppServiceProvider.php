@@ -14,6 +14,7 @@ use App\Services\Glpi\Handlers\PeripheralSyncHandler;
 use App\Services\Glpi\Handlers\PhoneSyncHandler;
 use App\Services\Glpi\Handlers\PhysicalServerSyncHandler;
 use App\Services\Glpi\Handlers\RackSyncHandler;
+use App\Services\Glpi\Handlers\SiteSyncHandler;
 use App\Services\Glpi\Handlers\WorkstationSyncHandler;
 use App\Services\Glpi\Mappers\ApplicationMapper;
 use App\Services\Glpi\Mappers\ApplianceMapper;
@@ -24,6 +25,7 @@ use App\Services\Glpi\Mappers\PeripheralMapper;
 use App\Services\Glpi\Mappers\PhoneMapper;
 use App\Services\Glpi\Mappers\PhysicalServerMapper;
 use App\Services\Glpi\Mappers\RackMapper;
+use App\Services\Glpi\Mappers\SiteMapper;
 use App\Services\Glpi\Mappers\WorkstationMapper;
 use App\Services\Mercator\Contracts\MercatorClientInterface;
 use App\Services\Mercator\MercatorClient;
@@ -54,6 +56,7 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(RackMapper::class);
         $this->app->singleton(ApplianceMapper::class);
         $this->app->singleton(LocationMapper::class);
+        $this->app->singleton(SiteMapper::class);
 
         $this->app->singleton(LogicalServerMapper::class, fn($app) =>
             new LogicalServerMapper($app->make(WorkstationMapper::class))
@@ -95,6 +98,10 @@ class AppServiceProvider extends ServiceProvider
 
         $this->app->singleton(LocationSyncHandler::class, fn($app) =>
             new LocationSyncHandler($app->make(LocationMapper::class))
+        );
+
+        $this->app->singleton(SiteSyncHandler::class, fn($app) =>
+            new SiteSyncHandler($app->make(SiteMapper::class))
         );
 
         // Handlers — sous-types Computer (Évolution 5)

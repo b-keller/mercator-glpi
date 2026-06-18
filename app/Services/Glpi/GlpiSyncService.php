@@ -39,6 +39,7 @@ class GlpiSyncService
         // ── 1. Chargement des données ─────────────────────────────────────────
 
         $buildingsMap = $this->buildBuildingsMap($mercator);
+        $sitesMap     = $this->buildSitesMap($mercator);
 
         $glpiItems = $glpi->getItems(
             $handler->glpiItemType(),
@@ -121,7 +122,7 @@ class GlpiSyncService
             ];
         }
 
-        $context = ['buildings_map' => $buildingsMap];
+        $context = ['buildings_map' => $buildingsMap, 'sites_map' => $sitesMap];
 
         // ── 6. GLPI → Mercator : créer ou mettre à jour ───────────────────────
 
@@ -510,6 +511,17 @@ class GlpiSyncService
                 'id'      => $building['id'],
                 'site_id' => $building['site_id'] ?? null,
             ];
+        }
+
+        return $map;
+    }
+
+    private function buildSitesMap(MercatorClientInterface $mercator): array
+    {
+        $map = [];
+
+        foreach ($mercator->getSites() as $site) {
+            $map[strtolower($site['name'])] = $site['id'];
         }
 
         return $map;

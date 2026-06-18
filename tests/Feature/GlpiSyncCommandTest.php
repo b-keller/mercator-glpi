@@ -16,6 +16,7 @@ it('s\'authentifie sur GLPI et Mercator', function () {
     $this->mock(MercatorClientInterface::class, function ($mock) {
         $mock->shouldReceive('authenticate')->once();
         $mock->shouldReceive('getBuildings')->andReturn([]);
+        $mock->shouldReceive('getSites')->andReturn([]);
         $mock->shouldReceive('getAll')->andReturn([]);
     });
 
@@ -32,6 +33,7 @@ it('ferme la session GLPI après la sync', function () {
     $this->mock(MercatorClientInterface::class, function ($mock) {
         $mock->shouldReceive('authenticate');
         $mock->shouldReceive('getBuildings')->andReturn([]);
+        $mock->shouldReceive('getSites')->andReturn([]);
         $mock->shouldReceive('getAll')->andReturn([]);
     });
 
@@ -48,6 +50,7 @@ it('retourne un code d\'erreur si l\'authentification GLPI échoue', function ()
     $this->mock(MercatorClientInterface::class, function ($mock) {
         $mock->shouldReceive('authenticate')->zeroOrMoreTimes();
         $mock->shouldReceive('getBuildings')->zeroOrMoreTimes()->andReturn([]);
+        $mock->shouldReceive('getSites')->zeroOrMoreTimes()->andReturn([]);
         $mock->shouldReceive('getAll')->zeroOrMoreTimes()->andReturn([]);
     });
 
@@ -64,6 +67,7 @@ it('accepte l\'option --dry-run sans écrire', function () {
     $this->mock(MercatorClientInterface::class, function ($mock) {
         $mock->shouldReceive('authenticate');
         $mock->shouldReceive('getBuildings')->andReturn([]);
+        $mock->shouldReceive('getSites')->andReturn([]);
         $mock->shouldReceive('getAll')->andReturn([]);
         $mock->shouldNotReceive('create');
         $mock->shouldNotReceive('update');

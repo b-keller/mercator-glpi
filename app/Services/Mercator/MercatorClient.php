@@ -50,6 +50,11 @@ class MercatorClient implements MercatorClientInterface
         return $this->getAll('buildings');
     }
 
+    public function getSites(): array
+    {
+        return $this->getAll('sites');
+    }
+
     // -------------------------------------------------------------------------
     // CRUD générique (workstations, phones, peripherals…)
     // -------------------------------------------------------------------------

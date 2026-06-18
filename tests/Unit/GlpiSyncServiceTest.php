@@ -31,6 +31,7 @@ function mercatorMock(array $workstations = [], array $buildings = []): \Mockery
 {
     $mock = Mockery::mock(MercatorClientInterface::class);
     $mock->shouldReceive('getBuildings')->andReturn($buildings);
+    $mock->shouldReceive('getSites')->andReturn([]);
     $mock->shouldReceive('getAll')->andReturn($workstations);
     return $mock;
 }
@@ -283,6 +284,7 @@ it('laisse building_id absent si la salle ne correspond à aucun building', func
 it('ne marque pas OLD les applications absentes de GLPI', function () {
     $mercator = Mockery::mock(MercatorClientInterface::class);
     $mercator->shouldReceive('getBuildings')->andReturn([]);
+    $mercator->shouldReceive('getSites')->andReturn([]);
     // Une application Mercator sans tag glpi_id et absente de GLPI
     $mercator->shouldReceive('getAll')->andReturn([
         ['id' => 20, 'name' => 'App-Orpheline', 'description' => 'Sans tag GLPI'],
@@ -305,6 +307,7 @@ it('ne marque pas OLD les applications absentes de GLPI', function () {
 it('ne modifie pas les workstations Mercator absentes de GLPI (processOrphans=false)', function () {
     $mercator = Mockery::mock(MercatorClientInterface::class);
     $mercator->shouldReceive('getBuildings')->andReturn([]);
+    $mercator->shouldReceive('getSites')->andReturn([]);
     $mercator->shouldReceive('getAll')->andReturn([
         ['id' => 30, 'name' => 'PC-ORPHELIN', 'description' => 'Sans tag GLPI'],
     ]);

@@ -13,6 +13,7 @@ use App\Services\Glpi\Handlers\PeripheralSyncHandler;
 use App\Services\Glpi\Handlers\PhoneSyncHandler;
 use App\Services\Glpi\Handlers\PhysicalServerSyncHandler;
 use App\Services\Glpi\Handlers\RackSyncHandler;
+use App\Services\Glpi\Handlers\SiteSyncHandler;
 use App\Services\Glpi\Handlers\WorkstationSyncHandler;
 use App\Services\Mercator\Contracts\MercatorClientInterface;
 use LaravelZero\Framework\Commands\Command;
@@ -35,6 +36,7 @@ class GlpiSyncCommand extends Command
         'network_devices' => NetworkDeviceSyncHandler::class,
         'racks'           => RackSyncHandler::class,
         'appliances'      => ApplianceSyncHandler::class,
+        'sites'           => SiteSyncHandler::class,
         'locations'       => LocationSyncHandler::class,
         'logical_servers' => LogicalServerSyncHandler::class,
         'physical_servers'=> PhysicalServerSyncHandler::class,
@@ -89,9 +91,12 @@ class GlpiSyncCommand extends Command
         $this->line('');
         $globalStats = ['created' => 0, 'updated' => 0, 'deleted' => 0, 'marked_old' => 0, 'errors' => 0];
 
-        // Ordre intentionnel : locations et applications en premier car les autres
-        // types en dépendent (building_id, liens workstation/activity ↔ application).
+        // Ordre intentionnel : sites/locations et applications en premier car les autres
+        // types en dépendent (building_id/site_id, liens workstation/activity ↔ application).
+        // sites avant locations : les Building (locations) racines référencent le Site
+        // créé pour la même Location racine.
         $defaultTypes = [
+            'sites',
             'locations',
             'applications',
             'appliances',
