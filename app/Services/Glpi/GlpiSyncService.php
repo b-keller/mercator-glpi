@@ -74,6 +74,15 @@ class GlpiSyncService
             Log::debug("[{$endpoint}] Filtre sous-type : {$excluded} item(s) exclus, ".count($glpiItems).' conservé(s)');
         }
 
+        // ── 3c. Tri hiérarchique (Location) ────────────────────────────────────
+        // Sur une installation Mercator vierge, les Building doivent être créés
+        // racine d'abord, puis enfants : sinon une Location de niveau 2 ne trouve
+        // pas encore son Building parent dans buildings_map (cf. étape 6) et se
+        // retrouve orpheline (building_id/site_id absents). GLPI fournit "level"
+        // (profondeur dans l'arbre) sur chaque Location ; les autres itemtypes
+        // n'ont pas ce champ, le tri est alors un no-op (usort est stable).
+        usort($glpiItems, fn ($a, $b) => ($a['level'] ?? 0) <=> ($b['level'] ?? 0));
+
         // ── 3b. Enrichissement item par item (with_networkports, with_disks…) ─
 
         if ($handler instanceof SupportsGlpiItemDetail) {
@@ -149,8 +158,11 @@ class GlpiSyncService
 
                 Log::debug("[{$endpoint}] {$action} {$glpiItem['name']} — payload: {$payloadDebug}");
 
+                $mercId = null;
+
                 if ($action === 'UPDATE') {
                     $matchedMercIds[$existing['id']] = true;
+                    $mercId = $existing['id'];
 
                     if (! $dryRun) {
                         $mercator->update($endpoint, $existing['id'], $payload);
@@ -159,10 +171,26 @@ class GlpiSyncService
                     Log::info("[{$endpoint}] Mis à jour : {$glpiItem['name']}");
                 } else {
                     if (! $dryRun) {
-                        $mercator->create($endpoint, $payload);
+                        $created = $mercator->create($endpoint, $payload);
+                        $mercId = $created['id'] ?? null;
+                    } else {
+                        // Pas d'ID réel en dry-run : un ID négatif local permet quand même
+                        // aux Location enfants de ce même run de résoudre leur parent.
+                        $mercId = -(int) $glpiItem['id'];
                     }
                     $stats['created']++;
                     Log::info("[{$endpoint}] Créé : {$glpiItem['name']}");
+                }
+
+                // Pour les Location (endpoint "buildings"), met à jour buildings_map en
+                // mémoire pour ce run : les Location enfants traitées plus loin dans la
+                // même boucle (cf. tri par "level" à l'étape 3c) doivent pouvoir résoudre
+                // leur Building parent même s'il vient d'être créé à l'instant.
+                if ($endpoint === 'buildings' && $mercId !== null) {
+                    $context['buildings_map'][strtolower($glpiItem['name'])] = [
+                        'id' => $mercId,
+                        'site_id' => $payload['site_id'] ?? null,
+                    ];
                 }
             } catch (Throwable $e) {
                 $stats['errors']++;
