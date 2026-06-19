@@ -143,6 +143,18 @@ it('résout le building_id insensiblement à la casse', function () {
     expect($result['building_id'])->toBe(5);
 });
 
+it('résout le building_id depuis le chemin complet renvoyé par GLPI pour une salle imbriquée', function () {
+    // GLPI expand_dropdowns renvoie le chemin complet ("Siège Social > Salle 101")
+    // dès que la location de l'asset n'est pas une location racine.
+    $result = (new WorkstationMapper)->map(
+        glpiComputer(['locations_id' => 'Siège Social > Salle 101']),
+        ['buildings_map' => buildingsMap()]
+    );
+
+    expect($result['building_id'])->toBe(5);
+    expect($result['site_id'])->toBe(1);
+});
+
 // ── Réseau ────────────────────────────────────────────────────────────────────
 
 it('extrait l\'adresse IP depuis les ports réseau', function () {

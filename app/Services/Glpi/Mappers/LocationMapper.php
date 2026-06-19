@@ -3,10 +3,12 @@
 namespace App\Services\Glpi\Mappers;
 
 use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+use App\Services\Glpi\Mappers\Concerns\ResolvesGlpiLocationName;
 
 class LocationMapper
 {
     use AppendsUnmappedFields;
+    use ResolvesGlpiLocationName;
     /**
      * Mappe une Location GLPI (expand_dropdowns=1) vers un payload Mercator buildings.
      *
@@ -24,10 +26,9 @@ class LocationMapper
     {
         $buildingsMap = $context['buildings_map'] ?? [];
         $sitesMap     = $context['sites_map'] ?? [];
-        $parentName   = $item['locations_id'] ?? null;
-        $isRoot       = ! $parentName || is_int($parentName) || $parentName === '0';
+        $parentName   = $this->locationLeafName($item['locations_id'] ?? null);
 
-        if ($isRoot) {
+        if ($parentName === null) {
             $buildingId = null;
             $siteId     = $sitesMap[strtolower($item['name'])] ?? null;
         } else {

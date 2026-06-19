@@ -3,10 +3,12 @@
 namespace App\Services\Glpi\Mappers;
 
 use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+use App\Services\Glpi\Mappers\Concerns\ResolvesGlpiLocationName;
 
 class WorkstationMapper
 {
     use AppendsUnmappedFields;
+    use ResolvesGlpiLocationName;
 
     /**
      * Mappe un Computer GLPI (expand_dropdowns=1) vers un payload Workstation Mercator.
@@ -62,12 +64,13 @@ class WorkstationMapper
      */
     private function resolveBuilding(mixed $locationName, array $buildingsMap): ?array
     {
-        if (! $locationName || is_int($locationName)) {
-            // 0 ou null = pas de localisation dans GLPI
+        $leafName = $this->locationLeafName($locationName);
+
+        if ($leafName === null) {
             return null;
         }
 
-        return $buildingsMap[strtolower($locationName)] ?? null;
+        return $buildingsMap[strtolower($leafName)] ?? null;
     }
 
     // -------------------------------------------------------------------------

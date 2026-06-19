@@ -3,10 +3,12 @@
 namespace App\Services\Glpi\Mappers;
 
 use App\Services\Glpi\Mappers\Concerns\AppendsUnmappedFields;
+use App\Services\Glpi\Mappers\Concerns\ResolvesGlpiLocationName;
 
 class PeripheralMapper
 {
     use AppendsUnmappedFields;
+    use ResolvesGlpiLocationName;
     /**
      * Mappe un Peripheral GLPI (expand_dropdowns=1) vers un payload Mercator.
      *
@@ -39,11 +41,13 @@ class PeripheralMapper
 
     private function resolveBuilding(mixed $locationName, array $buildingsMap): ?array
     {
-        if (! $locationName || is_int($locationName)) {
+        $leafName = $this->locationLeafName($locationName);
+
+        if ($leafName === null) {
             return null;
         }
 
-        return $buildingsMap[strtolower($locationName)] ?? null;
+        return $buildingsMap[strtolower($leafName)] ?? null;
     }
 
     // -------------------------------------------------------------------------
