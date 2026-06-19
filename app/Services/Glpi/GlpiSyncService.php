@@ -143,10 +143,9 @@ class GlpiSyncService
                 $payload = $handler->map($glpiItem, $context);
                 $payload['ext_refs'] = $this->buildExtRefs($existing['ext_refs'] ?? null, $glpiItem['id']);
 
+                // Pas de troncature : ce log n'est émis qu'en LOG_LEVEL=debug (opt-in) et
+                // sert justement à inspecter des champs en fin de payload (cpu, memory, disk…).
                 $payloadDebug = json_encode($payload, JSON_UNESCAPED_UNICODE);
-                if (strlen($payloadDebug) > 500) {
-                    $payloadDebug = substr($payloadDebug, 0, 500).'…';
-                }
 
                 Log::debug("[{$endpoint}] {$action} {$glpiItem['name']} — payload: {$payloadDebug}");
 
