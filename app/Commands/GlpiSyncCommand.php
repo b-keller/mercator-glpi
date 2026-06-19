@@ -11,9 +11,13 @@ use App\Services\Glpi\Handlers\LogicalServerSyncHandler;
 use App\Services\Glpi\Handlers\NetworkDeviceSyncHandler;
 use App\Services\Glpi\Handlers\PeripheralSyncHandler;
 use App\Services\Glpi\Handlers\PhoneSyncHandler;
+use App\Services\Glpi\Handlers\PhysicalSecurityDeviceSyncHandler;
 use App\Services\Glpi\Handlers\PhysicalServerSyncHandler;
 use App\Services\Glpi\Handlers\RackSyncHandler;
+use App\Services\Glpi\Handlers\RouterSyncHandler;
 use App\Services\Glpi\Handlers\SiteSyncHandler;
+use App\Services\Glpi\Handlers\StorageDeviceSyncHandler;
+use App\Services\Glpi\Handlers\WifiTerminalSyncHandler;
 use App\Services\Glpi\Handlers\WorkstationSyncHandler;
 use App\Services\Mercator\Contracts\MercatorClientInterface;
 use LaravelZero\Framework\Commands\Command;
@@ -29,17 +33,21 @@ class GlpiSyncCommand extends Command
     protected $description = 'Synchronise les assets GLPI vers Mercator';
 
     private array $handlers = [
-        'workstations'    => WorkstationSyncHandler::class,
-        'applications'    => ApplicationSyncHandler::class,
-        'peripherals'     => PeripheralSyncHandler::class,
-        'phones'          => PhoneSyncHandler::class,
-        'network_devices' => NetworkDeviceSyncHandler::class,
-        'racks'           => RackSyncHandler::class,
-        'appliances'      => ApplianceSyncHandler::class,
-        'sites'           => SiteSyncHandler::class,
-        'locations'       => LocationSyncHandler::class,
-        'logical_servers' => LogicalServerSyncHandler::class,
-        'physical_servers'=> PhysicalServerSyncHandler::class,
+        'workstations'               => WorkstationSyncHandler::class,
+        'applications'               => ApplicationSyncHandler::class,
+        'peripherals'                => PeripheralSyncHandler::class,
+        'phones'                     => PhoneSyncHandler::class,
+        'network_devices'            => NetworkDeviceSyncHandler::class,
+        'routers'                    => RouterSyncHandler::class,
+        'wifi_terminals'             => WifiTerminalSyncHandler::class,
+        'physical_security_devices'  => PhysicalSecurityDeviceSyncHandler::class,
+        'storage_devices'            => StorageDeviceSyncHandler::class,
+        'racks'                      => RackSyncHandler::class,
+        'appliances'                 => ApplianceSyncHandler::class,
+        'sites'                      => SiteSyncHandler::class,
+        'locations'                  => LocationSyncHandler::class,
+        'logical_servers'            => LogicalServerSyncHandler::class,
+        'physical_servers'           => PhysicalServerSyncHandler::class,
     ];
 
     public function handle(
@@ -104,6 +112,10 @@ class GlpiSyncCommand extends Command
             'peripherals',
             'phones',
             'network_devices',
+            'routers',
+            'wifi_terminals',
+            'physical_security_devices',
+            'storage_devices',
             'racks',
             'logical_servers',
             'physical_servers',

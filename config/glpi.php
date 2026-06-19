@@ -41,4 +41,16 @@ return [
         'physical_servers' => $parseIds(env('GLPI_COMPUTER_TYPES_PHYSICAL_SERVERS')),
     ],
 
+    // Routage des NetworkEquipment par sous-type (networkequipmenttypes_id) — IDs ou noms GLPI.
+    // "switches" vide = comportement historique (catch-all : tout NetworkEquipment non
+    // explicitement routé vers un autre sous-type devient un physical-switch Mercator).
+    // Les autres sous-types sont opt-in : vide = désactivé.
+    'network_device_types' => [
+        'switches'                  => $parseIds(env('GLPI_NETWORK_DEVICE_TYPES_SWITCHES')),
+        'routers'                   => $parseIds(env('GLPI_NETWORK_DEVICE_TYPES_ROUTERS')),
+        'wifi_terminals'            => $parseIds(env('GLPI_NETWORK_DEVICE_TYPES_WIFI_TERMINALS')),
+        'physical_security_devices' => $parseIds(env('GLPI_NETWORK_DEVICE_TYPES_PHYSICAL_SECURITY_DEVICES')),
+        'storage_devices'           => $parseIds(env('GLPI_NETWORK_DEVICE_TYPES_STORAGE_DEVICES')),
+    ],
+
 ];

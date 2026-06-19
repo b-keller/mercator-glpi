@@ -3,10 +3,13 @@
 namespace App\Services\Glpi\Handlers;
 
 use App\Services\Glpi\Contracts\SyncHandler;
+use App\Services\Glpi\Handlers\Concerns\MatchesGlpiDropdownType;
 use App\Services\Glpi\Mappers\NetworkDeviceMapper;
 
 class NetworkDeviceSyncHandler implements SyncHandler
 {
+    use MatchesGlpiDropdownType;
+
     public function __construct(private readonly NetworkDeviceMapper $mapper) {}
 
     public function glpiItemType(): string
@@ -33,9 +36,21 @@ class NetworkDeviceSyncHandler implements SyncHandler
         return false;
     }
 
+    /**
+     * Vide = comportement historique (tous les NetworkEquipment deviennent des
+     * physical-switches). Sinon, filtre par GLPI_NETWORK_DEVICE_TYPES_SWITCHES,
+     * de façon symétrique aux autres sous-types de NetworkEquipment (routers,
+     * wifi_terminals, physical_security_devices, storage_devices).
+     */
     public function filterItem(array $item): bool
     {
-        return true;
+        $allowed = config('glpi.network_device_types.switches', []);
+
+        if (empty($allowed)) {
+            return true;
+        }
+
+        return $this->matchesType($item['networkequipmenttypes_id'] ?? null, $allowed);
     }
 
     public function map(array $glpiItem, array $context): array

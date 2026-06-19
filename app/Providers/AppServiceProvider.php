@@ -12,9 +12,13 @@ use App\Services\Glpi\Handlers\LogicalServerSyncHandler;
 use App\Services\Glpi\Handlers\NetworkDeviceSyncHandler;
 use App\Services\Glpi\Handlers\PeripheralSyncHandler;
 use App\Services\Glpi\Handlers\PhoneSyncHandler;
+use App\Services\Glpi\Handlers\PhysicalSecurityDeviceSyncHandler;
 use App\Services\Glpi\Handlers\PhysicalServerSyncHandler;
 use App\Services\Glpi\Handlers\RackSyncHandler;
+use App\Services\Glpi\Handlers\RouterSyncHandler;
 use App\Services\Glpi\Handlers\SiteSyncHandler;
+use App\Services\Glpi\Handlers\StorageDeviceSyncHandler;
+use App\Services\Glpi\Handlers\WifiTerminalSyncHandler;
 use App\Services\Glpi\Handlers\WorkstationSyncHandler;
 use App\Services\Glpi\Mappers\ApplicationMapper;
 use App\Services\Glpi\Mappers\ApplianceMapper;
@@ -23,9 +27,13 @@ use App\Services\Glpi\Mappers\LogicalServerMapper;
 use App\Services\Glpi\Mappers\NetworkDeviceMapper;
 use App\Services\Glpi\Mappers\PeripheralMapper;
 use App\Services\Glpi\Mappers\PhoneMapper;
+use App\Services\Glpi\Mappers\PhysicalSecurityDeviceMapper;
 use App\Services\Glpi\Mappers\PhysicalServerMapper;
 use App\Services\Glpi\Mappers\RackMapper;
+use App\Services\Glpi\Mappers\RouterMapper;
 use App\Services\Glpi\Mappers\SiteMapper;
+use App\Services\Glpi\Mappers\StorageDeviceMapper;
+use App\Services\Glpi\Mappers\WifiTerminalMapper;
 use App\Services\Glpi\Mappers\WorkstationMapper;
 use App\Services\Mercator\Contracts\MercatorClientInterface;
 use App\Services\Mercator\MercatorClient;
@@ -53,6 +61,10 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(PeripheralMapper::class);
         $this->app->singleton(PhoneMapper::class);
         $this->app->singleton(NetworkDeviceMapper::class);
+        $this->app->singleton(RouterMapper::class);
+        $this->app->singleton(WifiTerminalMapper::class);
+        $this->app->singleton(PhysicalSecurityDeviceMapper::class);
+        $this->app->singleton(StorageDeviceMapper::class);
         $this->app->singleton(RackMapper::class);
         $this->app->singleton(ApplianceMapper::class);
         $this->app->singleton(LocationMapper::class);
@@ -86,6 +98,22 @@ class AppServiceProvider extends ServiceProvider
         // Handlers — nouveaux types (Évolution 4)
         $this->app->singleton(NetworkDeviceSyncHandler::class, fn($app) =>
             new NetworkDeviceSyncHandler($app->make(NetworkDeviceMapper::class))
+        );
+
+        $this->app->singleton(RouterSyncHandler::class, fn($app) =>
+            new RouterSyncHandler($app->make(RouterMapper::class))
+        );
+
+        $this->app->singleton(WifiTerminalSyncHandler::class, fn($app) =>
+            new WifiTerminalSyncHandler($app->make(WifiTerminalMapper::class))
+        );
+
+        $this->app->singleton(PhysicalSecurityDeviceSyncHandler::class, fn($app) =>
+            new PhysicalSecurityDeviceSyncHandler($app->make(PhysicalSecurityDeviceMapper::class))
+        );
+
+        $this->app->singleton(StorageDeviceSyncHandler::class, fn($app) =>
+            new StorageDeviceSyncHandler($app->make(StorageDeviceMapper::class))
         );
 
         $this->app->singleton(RackSyncHandler::class, fn($app) =>

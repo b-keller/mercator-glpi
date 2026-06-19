@@ -4,10 +4,13 @@ namespace App\Services\Glpi\Handlers;
 
 use App\Services\Glpi\Contracts\SupportsGlpiItemDetail;
 use App\Services\Glpi\Contracts\SyncHandler;
+use App\Services\Glpi\Handlers\Concerns\MatchesGlpiDropdownType;
 use App\Services\Glpi\Mappers\WorkstationMapper;
 
 class WorkstationSyncHandler implements SyncHandler, SupportsGlpiItemDetail
 {
+    use MatchesGlpiDropdownType;
+
     public function __construct(private readonly WorkstationMapper $mapper) {}
 
     public function glpiItemType(): string
@@ -58,32 +61,11 @@ class WorkstationSyncHandler implements SyncHandler, SupportsGlpiItemDetail
             return true;
         }
 
-        return $this->matchesComputerType($item['computertypes_id'] ?? null, $allowed);
+        return $this->matchesType($item['computertypes_id'] ?? null, $allowed);
     }
 
     public function map(array $glpiItem, array $context): array
     {
         return $this->mapper->map($glpiItem, $context);
-    }
-
-    private function matchesComputerType(mixed $typeValue, array $allowed): bool
-    {
-        if ($typeValue === null || $typeValue === 0 || $typeValue === '') {
-            return false;
-        }
-
-        $typeStr = (string) $typeValue;
-
-        foreach ($allowed as $a) {
-            // Comparaison par ID numérique ou par nom (insensible à la casse)
-            if (is_numeric($a) && is_numeric($typeStr) && (int) $a === (int) $typeStr) {
-                return true;
-            }
-            if (strtolower($typeStr) === strtolower((string) $a)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 }
